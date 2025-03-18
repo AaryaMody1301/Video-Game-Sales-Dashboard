@@ -981,7 +981,7 @@ def generate_forecast(n_clicks, year_range, selected_platforms, selected_generat
     
     # Get the range of years for prediction
     min_year = yearly_sales['release_year'].min()
-    max_year = yearly_sales['release_year'].max()
+    max_year = int(yearly_sales['release_year'].max())  # Convert to integer
     
     # Create X (years) and y (sales) for the model
     X = yearly_sales['release_year'].values.reshape(-1, 1)
