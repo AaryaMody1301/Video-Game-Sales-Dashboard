@@ -9,77 +9,227 @@ from dash import dcc, html, callback_context
 from dash.dependencies import Input, Output, State
 import dash_bootstrap_components as dbc
 import os
-import base64
 import io
-import json
 from datetime import datetime
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
+import warnings
+import xlsxwriter
+import traceback
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("dashboard.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Suppress specific warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
+
+# Add this after the import statements, before the load_data function
+from functools import lru_cache
+import time
+
+# Fix the DataFrameCache class implementation
+class DataFrameCache:
+    def __init__(self, max_size=10):
+        self.cache = {}
+        self.max_size = max_size
+        self.timestamps = {}
+    
+    def get_key(self, filters):
+        # Create a hashable key from the filters
+        return str(hash(str(filters)))
+    
+    def get(self, filters):
+        key = self.get_key(filters)
+        if key in self.cache:
+            # Update timestamp for LRU tracking
+            self.timestamps[key] = time.time()
+            logger.debug(f"Cache hit for filter set {key}")
+            return self.cache[key]
+        return None
+    
+    def set(self, filters, df):
+        key = self.get_key(filters)
+        
+        # If cache is full, remove least recently used item
+        if len(self.cache) >= self.max_size:
+            oldest_key = min(self.timestamps, key=self.timestamps.get)
+            logger.debug(f"Cache full, removing {oldest_key}")
+            del self.cache[oldest_key]
+            del self.timestamps[oldest_key]
+        
+        # Add new item to cache
+        self.cache[key] = df.copy()  # Store a copy to avoid reference issues
+        self.timestamps[key] = time.time()
+        logger.debug(f"Added filtered dataframe to cache with key {key}")
+
+# Initialize the cache
+df_cache = DataFrameCache(max_size=20)
+
+# Helper function to apply filters to dataframe (used by multiple callbacks)
+def apply_filters(year_range, selected_platforms, selected_generations, selected_genres, 
+                 selected_publishers, critic_range, search_value):
+    # Create a unique key for this filter combination
+    filters = (
+        tuple(year_range), 
+        tuple(selected_platforms) if selected_platforms else None,
+        tuple(selected_generations) if selected_generations else None,
+        tuple(selected_genres) if selected_genres else None,
+        tuple(selected_publishers) if selected_publishers else None,
+        tuple(critic_range),
+        search_value
+    )
+    
+    # Check if we have a cached result
+    cached_df = df_cache.get(filters)
+    if cached_df is not None:
+        return cached_df
+    
+    # If not cached, filter the data
+    filtered_df = df.copy()
+    
+    # Year range filter
+    if not pd.isna(year_range[0]) and not pd.isna(year_range[1]):
+        filtered_df = filtered_df[
+            (filtered_df['release_year'] >= year_range[0]) & 
+            (filtered_df['release_year'] <= year_range[1])
+        ]
+    
+    # Platform filter
+    if selected_platforms:
+        filtered_df = filtered_df[filtered_df['console'].isin(selected_platforms)]
+    
+    # Console generation filter
+    if selected_generations:
+        filtered_df = filtered_df[filtered_df['console_gen'].isin(selected_generations)]
+    
+    # Genre filter
+    if selected_genres:
+        filtered_df = filtered_df[filtered_df['genre'].isin(selected_genres)]
+    
+    # Publisher filter
+    if selected_publishers:
+        filtered_df = filtered_df[filtered_df['publisher'].isin(selected_publishers)]
+    
+    # Critic score filter
+    filtered_df = filtered_df[
+        (filtered_df['critic_score'] >= critic_range[0]) & 
+        (filtered_df['critic_score'] <= critic_range[1]) |
+        (filtered_df['critic_score'].isna())  # Include games with no critic score
+    ]
+    
+    # Search filter
+    if search_value:
+        filtered_df = filtered_df[filtered_df['title'].str.contains(search_value, case=False, na=False)]
+    
+    # Cache the result before returning
+    df_cache.set(filters, filtered_df)
+    
+    return filtered_df
 
 # Load and preprocess the data
 def load_data():
-    print("Loading video game sales data...")
-    # Get the directory where this script is located
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    # Construct the absolute path to the CSV file
-    csv_path = os.path.join(script_dir, 'vgchartz-2024.csv')
-    print(f"Looking for data file at: {csv_path}")
-    df = pd.read_csv(csv_path)
-    
-    # Clean the data
-    # Convert sales columns to numeric, replacing empty strings with NaN
-    sales_columns = ['total_sales', 'na_sales', 'jp_sales', 'pal_sales', 'other_sales']
-    for col in sales_columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    # Convert release_date to datetime, coercing errors to NaT
-    df['release_date'] = pd.to_datetime(df['release_date'], errors='coerce')
-    
-    # Extract release year
-    df['release_year'] = df['release_date'].dt.year
-    
-    # Fill NaN with 'Unknown' for categorical columns
-    categorical_cols = ['console', 'genre', 'publisher', 'developer']
-    for col in categorical_cols:
-        df[col] = df[col].fillna('Unknown')
-    
-    # Convert critic_score to numeric
-    df['critic_score'] = pd.to_numeric(df['critic_score'], errors='coerce')
-    
-    # Additional data preprocessing
-    # Create console generation categories
-    console_generations = {
-        'PS1': 'Fifth Gen', 'PS': 'Fifth Gen', 'N64': 'Fifth Gen', 'SAT': 'Fifth Gen', 'DC': 'Fifth Gen',
-        'PS2': 'Sixth Gen', 'XB': 'Sixth Gen', 'GC': 'Sixth Gen', 
-        'PS3': 'Seventh Gen', 'X360': 'Seventh Gen', 'Wii': 'Seventh Gen',
-        'PS4': 'Eighth Gen', 'XOne': 'Eighth Gen', 'WiiU': 'Eighth Gen', 'NS': 'Eighth Gen',
-        'GBA': 'Handheld', 'DS': 'Handheld', 'PSP': 'Handheld', '3DS': 'Handheld', 'PSV': 'Handheld',
-        'PC': 'PC'
-    }
-    
-    # Apply console generation mapping
-    df['console_gen'] = df['console'].map(lambda x: console_generations.get(x, 'Other'))
-    
-    # Create decade column for timeline analysis
-    df['decade'] = df['release_year'].apply(lambda x: f"{int(x/10)*10}s" if not pd.isna(x) else "Unknown")
-    
-    # Calculate commercial success ratio (total sales per critic score point)
-    df['sales_per_point'] = df['total_sales'] / df['critic_score']
-    
-    # Create publisher tier categories based on number of titles
-    publisher_counts = df['publisher'].value_counts()
-    top_publishers = publisher_counts[publisher_counts > 20].index.tolist()
-    df['publisher_tier'] = df['publisher'].apply(lambda x: x if x in top_publishers else 'Other Publishers')
-    
-    # Calculate regional sales percentage
-    df['na_percent'] = (df['na_sales'] / df['total_sales'] * 100).round(1)
-    df['jp_percent'] = (df['jp_sales'] / df['total_sales'] * 100).round(1)
-    df['pal_percent'] = (df['pal_sales'] / df['total_sales'] * 100).round(1)
-    df['other_percent'] = (df['other_sales'] / df['total_sales'] * 100).round(1)
-    
-    print(f"Data loaded successfully. {len(df)} records found.")
-    return df
+    try:
+        logger.info("Loading video game sales data...")
+        # Get the directory where this script is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Construct the absolute path to the CSV file
+        csv_path = os.path.join(script_dir, 'vgchartz-2024.csv')
+        logger.info(f"Looking for data file at: {csv_path}")
+        
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"Data file not found: {csv_path}")
+            
+        df = pd.read_csv(csv_path)
+        
+        # Clean the data
+        # Convert sales columns to numeric, replacing empty strings with NaN
+        sales_columns = ['total_sales', 'na_sales', 'jp_sales', 'pal_sales', 'other_sales']
+        for col in sales_columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Convert release_date to datetime, coercing errors to NaT
+        df['release_date'] = pd.to_datetime(df['release_date'], errors='coerce')
+        
+        # Extract release year
+        df['release_year'] = df['release_date'].dt.year
+        
+        # Fill NaN with 'Unknown' for categorical columns
+        categorical_cols = ['console', 'genre', 'publisher', 'developer']
+        for col in categorical_cols:
+            df[col] = df[col].fillna('Unknown')
+        
+        # Convert critic_score to numeric
+        df['critic_score'] = pd.to_numeric(df['critic_score'], errors='coerce')
+        
+        # Additional data preprocessing
+        # Create console generation categories (updated with newer consoles)
+        console_generations = {
+            # Fifth Generation (1993-2002)
+            'PS1': 'Fifth Gen', 'PS': 'Fifth Gen', 'N64': 'Fifth Gen', 'SAT': 'Fifth Gen', 'DC': 'Fifth Gen',
+            # Sixth Generation (1998-2009)
+            'PS2': 'Sixth Gen', 'XB': 'Sixth Gen', 'GC': 'Sixth Gen', 
+            # Seventh Generation (2005-2013)
+            'PS3': 'Seventh Gen', 'X360': 'Seventh Gen', 'Wii': 'Seventh Gen',
+            # Eighth Generation (2012-2020)
+            'PS4': 'Eighth Gen', 'XOne': 'Eighth Gen', 'WiiU': 'Eighth Gen', 'NS': 'Eighth Gen',
+            # Ninth Generation (2020-)
+            'PS5': 'Ninth Gen', 'XSX': 'Ninth Gen', 'XS': 'Ninth Gen',
+            # Handhelds
+            'GBA': 'Handheld', 'DS': 'Handheld', 'PSP': 'Handheld', '3DS': 'Handheld', 'PSV': 'Handheld',
+            'Switch': 'Hybrid',
+            'PC': 'PC'
+        }
+        
+        # Apply console generation mapping
+        df['console_gen'] = df['console'].map(lambda x: console_generations.get(x, 'Other'))
+        
+        # Create decade column for timeline analysis
+        df['decade'] = df['release_year'].apply(lambda x: f"{int(x/10)*10}s" if not pd.isna(x) else "Unknown")
+        
+        # Calculate commercial success ratio (total sales per critic score point)
+        # Avoid division by zero by adding a small epsilon
+        df['sales_per_point'] = df['total_sales'] / (df['critic_score'].replace(0, np.nan) + 1e-10)
+        
+        # Create publisher tier categories based on number of titles
+        publisher_counts = df['publisher'].value_counts()
+        top_publishers = publisher_counts[publisher_counts > 20].index.tolist()
+        df['publisher_tier'] = df['publisher'].apply(lambda x: x if x in top_publishers else 'Other Publishers')
+        
+        # Calculate regional sales percentage (safely)
+        df['total_sales_safe'] = df['total_sales'].replace(0, np.nan)
+        df['na_percent'] = (df['na_sales'] / df['total_sales_safe'] * 100).round(1).fillna(0)
+        df['jp_percent'] = (df['jp_sales'] / df['total_sales_safe'] * 100).round(1).fillna(0)
+        df['pal_percent'] = (df['pal_sales'] / df['total_sales_safe'] * 100).round(1).fillna(0)
+        df['other_percent'] = (df['other_sales'] / df['total_sales_safe'] * 100).round(1).fillna(0)
+        df = df.drop('total_sales_safe', axis=1)
+        
+        # Additional metadata for analysis
+        df['release_month'] = df['release_date'].dt.month
+        df['release_quarter'] = df['release_date'].dt.quarter
+        df['has_critic_score'] = ~df['critic_score'].isna()
+        
+        logger.info(f"Data loaded successfully. {len(df)} records found.")
+        return df
+    except Exception as e:
+        logger.error(f"Error loading data: {str(e)}")
+        logger.debug(traceback.format_exc())
+        # Return a minimal DataFrame with sample data to allow the app to start
+        columns = ['title', 'console', 'publisher', 'developer', 'genre', 'release_date', 
+                   'total_sales', 'na_sales', 'jp_sales', 'pal_sales', 'other_sales', 'critic_score']
+        return pd.DataFrame(columns=columns)
 
 # Available themes
 THEMES = {
@@ -226,6 +376,18 @@ app.layout = dbc.Container([
             html.Label("Search Game Title:", className="mt-3"),
             dcc.Input(id='search-bar', type='text', placeholder='Enter game title...', debounce=True),
             
+            html.Label("Export Format:", className="mt-3"),
+            dcc.Dropdown(
+                id='export-format-dropdown',
+                options=[
+                    {'label': 'CSV', 'value': 'csv'},
+                    {'label': 'Excel', 'value': 'excel'},
+                    {'label': 'PDF', 'value': 'pdf'}
+                ],
+                value='csv',
+                clearable=False
+            ),
+            
             html.Button("Export Data", id="export-button", className="mt-3 btn btn-primary"),
             dcc.Download(id="download-dataframe-csv")
         ], width=3),
@@ -351,6 +513,83 @@ app.layout = dbc.Container([
                         ], width=12)
                     ])
                 ], label="Predictive Analytics"),
+
+                dbc.Tab([
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Graph(id='seasonal-sales-chart')
+                        ], width=12),
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Graph(id='monthly-sales-heatmap')
+                        ], width=6),
+                        dbc.Col([
+                            dcc.Graph(id='quarterly-genre-distribution')
+                        ], width=6),
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.H5("Seasonal Insights", className="mt-3"),
+                            html.Div(id="seasonal-insights-text", className="p-3 border rounded")
+                        ], width=12),
+                    ]),
+                ], label="Seasonal Analysis"),
+
+                # Add a new tab for game comparison after the "Seasonal Analysis" tab
+
+                dbc.Tab([
+                    dbc.Row([
+                        dbc.Col([
+                            html.H4("Game Comparison", className="mt-3"),
+                            html.P("Select games to compare their performance and metrics side by side"),
+                            dbc.Card([
+                                dbc.CardBody([
+                                    dbc.Row([
+                                        dbc.Col([
+                                            html.Label("Search and select games to compare:"),
+                                            dcc.Dropdown(
+                                                id='game-comparison-dropdown',
+                                                options=[],  # Will be populated dynamically
+                                                value=[],
+                                                multi=True,
+                                                placeholder="Type to search for games...",
+                                            ),
+                                        ], width=9),
+                                        dbc.Col([
+                                            html.Br(),
+                                            dbc.Button(
+                                                "Compare Games",
+                                                id="compare-button",
+                                                color="primary",
+                                                className="mt-2"
+                                            ),
+                                        ], width=3, className="d-flex align-items-center"),
+                                    ]),
+                                    html.Div(id="comparison-message", className="mt-3 text-muted"),
+                                ])
+                            ])
+                        ], width=12)
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Graph(id='comparison-sales-chart')
+                        ], width=12),
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Graph(id='comparison-regional-chart')
+                        ], width=6),
+                        dbc.Col([
+                            dcc.Graph(id='comparison-metrics-chart')
+                        ], width=6),
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div(id='comparison-table', className="mt-3")
+                        ], width=12)
+                    ])
+                ], label="Game Comparison"),
                 
             ]),
         ], width=9),
@@ -410,41 +649,8 @@ app.layout = dbc.Container([
 def update_graphs(year_range, selected_platforms, selected_generations, selected_genres, 
                   selected_publishers, critic_range, sort_method, display_count, search_value):
     # Filter data based on user selections
-    filtered_df = df.copy()
-    
-    # Year range filter
-    if not pd.isna(year_range[0]) and not pd.isna(year_range[1]):
-        filtered_df = filtered_df[
-            (filtered_df['release_year'] >= year_range[0]) & 
-            (filtered_df['release_year'] <= year_range[1])
-        ]
-    
-    # Platform filter
-    if selected_platforms:
-        filtered_df = filtered_df[filtered_df['console'].isin(selected_platforms)]
-    
-    # Console generation filter
-    if selected_generations:
-        filtered_df = filtered_df[filtered_df['console_gen'].isin(selected_generations)]
-    
-    # Genre filter
-    if selected_genres:
-        filtered_df = filtered_df[filtered_df['genre'].isin(selected_genres)]
-    
-    # Publisher filter
-    if selected_publishers:
-        filtered_df = filtered_df[filtered_df['publisher'].isin(selected_publishers)]
-    
-    # Critic score filter
-    filtered_df = filtered_df[
-        (filtered_df['critic_score'] >= critic_range[0]) & 
-        (filtered_df['critic_score'] <= critic_range[1]) |
-        (filtered_df['critic_score'].isna())  # Include games with no critic score
-    ]
-    
-    # Search filter
-    if search_value:
-        filtered_df = filtered_df[filtered_df['title'].str.contains(search_value, case=False, na=False)]
+    filtered_df = apply_filters(year_range, selected_platforms, selected_generations, selected_genres, 
+                                selected_publishers, critic_range, search_value)
     
     # Sales by platform chart
     platform_sales = filtered_df.groupby('console')['total_sales'].sum().reset_index()
@@ -727,56 +933,205 @@ def update_graphs(year_range, selected_platforms, selected_generations, selected
 
 @app.callback(
     Output("download-dataframe-csv", "data"),
-    Input("export-button", "n_clicks"),
-    State('year-slider', 'value'),
-    State('platform-dropdown', 'value'),
-    State('console-gen-dropdown', 'value'),
-    State('genre-dropdown', 'value'),
-    State('publisher-dropdown', 'value'),
-    State('critic-score-slider', 'value'),
-    State('search-bar', 'value'),
+    [Input("export-button", "n_clicks"),
+     Input("export-format-dropdown", "value")],
+    [State('year-slider', 'value'),
+     State('platform-dropdown', 'value'),
+     State('console-gen-dropdown', 'value'),
+     State('genre-dropdown', 'value'),
+     State('publisher-dropdown', 'value'),
+     State('critic-score-slider', 'value'),
+     State('search-bar', 'value')],
     prevent_initial_call=True,
 )
-def export_data(n_clicks, year_range, selected_platforms, selected_generations, selected_genres, 
-                selected_publishers, critic_range, search_value):
+def export_data(n_clicks, export_format, year_range, selected_platforms, selected_generations, selected_genres, 
+               selected_publishers, critic_range, search_value):
+    if not n_clicks:
+        return None
+    
     # Filter data based on user selections
-    filtered_df = df.copy()
+    filtered_df = apply_filters(year_range, selected_platforms, selected_generations, selected_genres, 
+                                selected_publishers, critic_range, search_value)
     
-    # Year range filter
-    if not pd.isna(year_range[0]) and not pd.isna(year_range[1]):
-        filtered_df = filtered_df[
-            (filtered_df['release_year'] >= year_range[0]) & 
-            (filtered_df['release_year'] <= year_range[1])
-        ]
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"video_game_sales_{timestamp}"
     
-    # Platform filter
-    if selected_platforms:
-        filtered_df = filtered_df[filtered_df['console'].isin(selected_platforms)]
-    
-    # Console generation filter
-    if selected_generations:
-        filtered_df = filtered_df[filtered_df['console_gen'].isin(selected_generations)]
-    
-    # Genre filter
-    if selected_genres:
-        filtered_df = filtered_df[filtered_df['genre'].isin(selected_genres)]
-    
-    # Publisher filter
-    if selected_publishers:
-        filtered_df = filtered_df[filtered_df['publisher'].isin(selected_publishers)]
-    
-    # Critic score filter
-    filtered_df = filtered_df[
-        (filtered_df['critic_score'] >= critic_range[0]) & 
-        (filtered_df['critic_score'] <= critic_range[1]) |
-        (filtered_df['critic_score'].isna())  # Include games with no critic score
-    ]
-    
-    # Search filter
-    if search_value:
-        filtered_df = filtered_df[filtered_df['title'].str.contains(search_value, case=False, na=False)]
-    
-    return dcc.send_data_frame(filtered_df.to_csv, f"video_game_sales_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    try:
+        if export_format == 'csv':
+            return dcc.send_data_frame(filtered_df.to_csv, f"{filename}.csv")
+        
+        elif export_format == 'excel':
+            # Create a BytesIO object to store the Excel file
+            output = io.BytesIO()
+            
+            # Create ExcelWriter object with xlsxwriter engine
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Write the data to Excel
+                filtered_df.to_excel(writer, sheet_name='Video Game Sales', index=False)
+                
+                # Get the xlsxwriter workbook and worksheet objects
+                workbook = writer.book
+                worksheet = writer.sheets['Video Game Sales']
+                
+                # Add some formatting
+                header_format = workbook.add_format({
+                    'bold': True,
+                    'text_wrap': True,
+                    'valign': 'top',
+                    'fg_color': '#D7E4BC',
+                    'border': 1
+                })
+                
+                # Write the column headers with the defined format
+                for col_num, value in enumerate(filtered_df.columns.values):
+                    worksheet.write(0, col_num, value, header_format)
+                
+                # Set column widths
+                worksheet.set_column('A:Z', 15)  # Set width of all columns
+                
+                # Add a title to the sheet
+                title_format = workbook.add_format({
+                    'bold': True,
+                    'font_size': 14
+                })
+                worksheet.write('A1', 'Video Game Sales Data', title_format)
+                
+            # Set the output file
+            output.seek(0)
+            
+            return dcc.send_bytes(output.getvalue(), f"{filename}.xlsx")
+        
+        elif export_format == 'pdf':
+            # Create a BytesIO object to store the PDF
+            pdf_buffer = io.BytesIO()
+            
+            # Create PDF canvas
+            pdf = canvas.Canvas(pdf_buffer, pagesize=letter)
+            pdf.setTitle(f"Video Game Sales Data - {timestamp}")
+            
+            # Add title
+            pdf.setFont("Helvetica-Bold", 16)
+            pdf.drawString(50, 750, "Video Game Sales Dashboard - Data Export")
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(50, 735, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Add filter information
+            pdf.setFont("Helvetica-Bold", 12)
+            pdf.drawString(50, 710, "Applied Filters:")
+            pdf.setFont("Helvetica", 10)
+            
+            y_position = 695
+            pdf.drawString(60, y_position, f"Year Range: {year_range[0]} - {year_range[1]}")
+            y_position -= 15
+            
+            pdf.drawString(60, y_position, f"Platforms: {', '.join(selected_platforms) if selected_platforms else 'All'}")
+            y_position -= 15
+            
+            pdf.drawString(60, y_position, f"Genres: {', '.join(selected_genres) if selected_genres else 'All'}")
+            y_position -= 15
+            
+            pdf.drawString(60, y_position, f"Publishers: {', '.join(selected_publishers) if selected_publishers else 'All'}")
+            y_position -= 15
+            
+            # Add table headers
+            pdf.setFont("Helvetica-Bold", 10)
+            headers = ["Title", "Platform", "Publisher", "Genre", "Year", "Total Sales (M)"]
+            header_widths = [180, 60, 90, 70, 40, 80]
+            x_position = 50
+            y_position -= 30
+            
+            for i, header in enumerate(headers):
+                pdf.drawString(x_position, y_position, header)
+                x_position += header_widths[i]
+            
+            # Add table data (limited to first 30 rows)
+            pdf.setFont("Helvetica", 8)
+            y_position -= 15
+            max_rows = min(30, len(filtered_df))
+            
+            for i in range(max_rows):
+                x_position = 50
+                row = filtered_df.iloc[i]
+                
+                # Truncate title if too long
+                title = row['title']
+                if len(title) > 25:
+                    title = title[:22] + "..."
+                
+                data = [
+                    title,
+                    str(row['console']),
+                    str(row['publisher']) if len(str(row['publisher'])) < 15 else str(row['publisher'])[:12] + "...",
+                    str(row['genre']),
+                    str(int(row['release_year'])) if not pd.isna(row['release_year']) else "N/A",
+                    f"{row['total_sales']:.1f}" if not pd.isna(row['total_sales']) else "N/A"
+                ]
+                
+                for j, value in enumerate(data):
+                    pdf.drawString(x_position, y_position, value)
+                    x_position += header_widths[j]
+                
+                y_position -= 12
+                
+                # Add a new page if needed
+                if y_position < 50:
+                    pdf.showPage()
+                    pdf.setFont("Helvetica-Bold", 12)
+                    pdf.drawString(50, 750, "Video Game Sales Data (continued)")
+                    pdf.setFont("Helvetica", 8)
+                    y_position = 730
+            
+            # Add summary statistics
+            if y_position < 150:
+                pdf.showPage()
+                y_position = 750
+            
+            y_position -= 30
+            pdf.setFont("Helvetica-Bold", 12)
+            pdf.drawString(50, y_position, "Summary Statistics:")
+            pdf.setFont("Helvetica", 10)
+            
+            y_position -= 20
+            total_sales = filtered_df['total_sales'].sum()
+            avg_score = filtered_df['critic_score'].mean()
+            top_genre = filtered_df.groupby('genre')['total_sales'].sum().idxmax()
+            top_platform = filtered_df.groupby('console')['total_sales'].sum().idxmax()
+            
+            pdf.drawString(60, y_position, f"Total Games: {len(filtered_df)}")
+            y_position -= 15
+            pdf.drawString(60, y_position, f"Total Sales: {total_sales:.1f} million")
+            y_position -= 15
+            pdf.drawString(60, y_position, f"Average Critic Score: {avg_score:.1f}/10")
+            y_position -= 15
+            pdf.drawString(60, y_position, f"Top Genre: {top_genre}")
+            y_position -= 15
+            pdf.drawString(60, y_position, f"Top Platform: {top_platform}")
+            
+            # Add footer with page count
+            pdf.setFont("Helvetica", 8)
+            pdf.drawString(280, 30, "Video Game Sales Dashboard - Page 1")
+            
+            # Note about data export limit
+            if len(filtered_df) > max_rows:
+                pdf.setFont("Helvetica-Oblique", 8)
+                pdf.drawString(50, 30, f"Note: This PDF contains only the first {max_rows} of {len(filtered_df)} matching records.")
+            
+            # Save the PDF
+            pdf.save()
+            
+            # Return the PDF file
+            pdf_buffer.seek(0)
+            return dcc.send_bytes(pdf_buffer.getvalue(), f"{filename}.pdf")
+        
+        else:
+            # Default to CSV if format not recognized
+            return dcc.send_data_frame(filtered_df.to_csv, f"{filename}.csv")
+            
+    except Exception as e:
+        logger.error(f"Error exporting data in {export_format} format: {str(e)}")
+        # Return a simple CSV with error message
+        error_df = pd.DataFrame([{"Error": f"Failed to export data: {str(e)}"}])
+        return dcc.send_data_frame(error_df.to_csv, f"export_error_{timestamp}.csv")
 
 # Callback to capture clicks on graphs and store selected game data
 @app.callback(
@@ -935,26 +1290,8 @@ app.clientside_callback(
 def generate_forecast(n_clicks, year_range, selected_platforms, selected_generations, 
                      selected_genres, selected_publishers, forecast_years, model_type):
     # Filter data based on user selections
-    filtered_df = df.copy()
-    
-    # Apply filters
-    if not pd.isna(year_range[0]) and not pd.isna(year_range[1]):
-        filtered_df = filtered_df[
-            (filtered_df['release_year'] >= year_range[0]) & 
-            (filtered_df['release_year'] <= year_range[1])
-        ]
-    
-    if selected_platforms:
-        filtered_df = filtered_df[filtered_df['console'].isin(selected_platforms)]
-    
-    if selected_generations:
-        filtered_df = filtered_df[filtered_df['console_gen'].isin(selected_generations)]
-    
-    if selected_genres:
-        filtered_df = filtered_df[filtered_df['genre'].isin(selected_genres)]
-    
-    if selected_publishers:
-        filtered_df = filtered_df[filtered_df['publisher'].isin(selected_publishers)]
+    filtered_df = apply_filters(year_range, selected_platforms, selected_generations, selected_genres, 
+                                selected_publishers, [0, 10], None)
     
     # Group by year to get yearly sales
     yearly_sales = filtered_df.groupby('release_year')['total_sales'].sum().reset_index()
@@ -1102,6 +1439,408 @@ def generate_forecast(n_clicks, year_range, selected_platforms, selected_generat
     )
     
     return fig_forecast, fig_genre_forecast
+
+# Add after the generate_forecast callback
+
+# Callback for seasonal analysis charts
+@app.callback(
+    [Output('seasonal-sales-chart', 'figure'),
+     Output('monthly-sales-heatmap', 'figure'),
+     Output('quarterly-genre-distribution', 'figure'),
+     Output('seasonal-insights-text', 'children')],
+    [Input('year-slider', 'value'),
+     Input('platform-dropdown', 'value'),
+     Input('console-gen-dropdown', 'value'),
+     Input('genre-dropdown', 'value'),
+     Input('publisher-dropdown', 'value'),
+     Input('critic-score-slider', 'value')],
+)
+def update_seasonal_analysis(year_range, selected_platforms, selected_generations, 
+                            selected_genres, selected_publishers, critic_range):
+    # Filter data based on user selections
+    filtered_df = apply_filters(year_range, selected_platforms, selected_generations, 
+                               selected_genres, selected_publishers, critic_range, None)
+    
+    # Remove entries with missing release dates
+    date_df = filtered_df.dropna(subset=['release_date', 'release_month', 'release_quarter'])
+    
+    # Create a copy to avoid SettingWithCopyWarning
+    date_df = date_df.copy()
+    
+    # Add month names for better readability
+    month_names = {
+        1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
+        7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
+    }
+    date_df['month_name'] = date_df['release_month'].map(month_names)
+    
+    # Add quarter names
+    quarter_names = {1: 'Q1 (Jan-Mar)', 2: 'Q2 (Apr-Jun)', 3: 'Q3 (Jul-Sep)', 4: 'Q4 (Oct-Dec)'}
+    date_df['quarter_name'] = date_df['release_quarter'].map(quarter_names)
+    
+    # 1. Create seasonal sales chart (by quarter and year)
+    quarterly_sales = date_df.groupby(['release_year', 'quarter_name', 'release_quarter'])['total_sales'].sum().reset_index()
+    
+    # Sort by quarter to ensure correct order
+    quarterly_sales = quarterly_sales.sort_values(['release_year', 'release_quarter'])
+    
+    fig_seasonal = px.line(
+        quarterly_sales,
+        x='release_year',
+        y='total_sales',
+        color='quarter_name',
+        markers=True,
+        title='Quarterly Sales Trends Over Time',
+        labels={
+            'release_year': 'Year',
+            'total_sales': 'Total Sales (millions)',
+            'quarter_name': 'Quarter'
+        },
+        color_discrete_sequence=px.colors.qualitative.G10
+    )
+    
+    # Customize layout
+    fig_seasonal.update_layout(
+        xaxis=dict(tickmode='linear'),
+        legend=dict(orientation="h", title=None, yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    # 2. Create monthly sales heatmap
+    monthly_sales = date_df.groupby(['release_year', 'release_month'])['total_sales'].sum().reset_index()
+    monthly_sales_pivot = monthly_sales.pivot_table(
+        values='total_sales',
+        index='release_year',
+        columns='release_month',
+        fill_value=0
+    )
+    
+    # Create column names with month abbreviations
+    monthly_sales_pivot.columns = [month_names[m] for m in monthly_sales_pivot.columns]
+    
+    # Focus on the most relevant years for better visualization (max 20 years)
+    if len(monthly_sales_pivot) > 20:
+        # Get the years with the most sales
+        yearly_totals = monthly_sales_pivot.sum(axis=1).sort_values(ascending=False)
+        top_years = yearly_totals.nlargest(20).index
+        monthly_sales_pivot = monthly_sales_pivot.loc[top_years]
+    
+    # Create heatmap
+    fig_monthly = px.imshow(
+        monthly_sales_pivot.T,  # Transpose to have months on y-axis
+        labels=dict(x="Year", y="Month", color="Sales (millions)"),
+        x=monthly_sales_pivot.index,
+        y=monthly_sales_pivot.columns,
+        color_continuous_scale='Viridis',
+        title='Monthly Sales Heatmap'
+    )
+    
+    # Customize layout
+    fig_monthly.update_xaxes(side="top")
+    fig_monthly.update_layout(
+        xaxis={'type': 'category'},
+        yaxis={'categoryarray': list(month_names.values()), 'type': 'category'}
+    )
+    
+    # 3. Create quarterly genre distribution chart
+    genre_quarterly = date_df.groupby(['genre', 'quarter_name'])['total_sales'].sum().reset_index()
+    
+    # Use only top genres for clarity
+    top_genres = date_df.groupby('genre')['total_sales'].sum().nlargest(8).index
+    genre_quarterly = genre_quarterly[genre_quarterly['genre'].isin(top_genres)]
+    
+    # Sort by quarter for consistent order
+    quarter_order = ['Q1 (Jan-Mar)', 'Q2 (Apr-Jun)', 'Q3 (Jul-Sep)', 'Q4 (Oct-Dec)']
+    genre_quarterly['quarter_name'] = pd.Categorical(genre_quarterly['quarter_name'], categories=quarter_order, ordered=True)
+    genre_quarterly = genre_quarterly.sort_values('quarter_name')
+    
+    fig_genre_quarterly = px.bar(
+        genre_quarterly,
+        x='quarter_name',
+        y='total_sales',
+        color='genre',
+        barmode='group',
+        title='Genre Performance by Quarter',
+        labels={
+            'quarter_name': 'Quarter',
+            'total_sales': 'Total Sales (millions)',
+            'genre': 'Genre'
+        },
+        color_discrete_sequence=px.colors.qualitative.Plotly
+    )
+    
+    # 4. Generate seasonal insights text
+    total_games = len(date_df)
+    
+    # Find the most popular release quarter
+    quarter_counts = date_df['quarter_name'].value_counts()
+    popular_quarter = quarter_counts.idxmax()
+    quarter_percentage = (quarter_counts.max() / total_games * 100).round(1)
+    
+    # Find the most popular release month
+    month_counts = date_df['month_name'].value_counts()
+    popular_month = month_counts.idxmax()
+    month_percentage = (month_counts.max() / total_games * 100).round(1)
+    
+    # Find the quarter with highest average sales
+    quarter_avg_sales = date_df.groupby('quarter_name')['total_sales'].mean()
+    best_sales_quarter = quarter_avg_sales.idxmax()
+    best_sales_value = quarter_avg_sales.max().round(2)
+    
+    # Find best selling genre by quarter
+    best_genre_by_quarter = {}
+    for quarter in quarter_order:
+        if quarter in genre_quarterly['quarter_name'].values:
+            quarter_data = genre_quarterly[genre_quarterly['quarter_name'] == quarter]
+            best_genre = quarter_data.loc[quarter_data['total_sales'].idxmax()]['genre']
+            best_genre_by_quarter[quarter] = best_genre
+    
+    # Create insights text
+    insights = [
+        html.P([
+            "Based on the selected filters, the analysis shows the following seasonal patterns:"
+        ]),
+        html.Ul([
+            html.Li([
+                f"Most games ({quarter_percentage}%) were released in ",
+                html.Strong(f"{popular_quarter}"), 
+                f", with {popular_month} being the most popular month ({month_percentage}%)."
+            ]),
+            html.Li([
+                f"Games released in ",
+                html.Strong(f"{best_sales_quarter}"),
+                f" had the highest average sales of {best_sales_value} million units."
+            ]),
+            html.Li([
+                "Best performing genres by quarter:"
+            ]),
+            html.Ul([
+                html.Li([f"{quarter}: ", html.Strong(f"{genre}")]) 
+                for quarter, genre in best_genre_by_quarter.items()
+            ])
+        ])
+    ]
+    
+    # Check if there's a holiday season impact
+    q4_data = date_df[date_df['quarter_name'] == 'Q4 (Oct-Dec)']
+    other_quarters = date_df[date_df['quarter_name'] != 'Q4 (Oct-Dec)']
+    
+    if len(q4_data) > 0 and len(other_quarters) > 0:
+        q4_avg = q4_data['total_sales'].mean()
+        other_avg = other_quarters['total_sales'].mean()
+        
+        if q4_avg > other_avg:
+            holiday_impact = ((q4_avg / other_avg) - 1) * 100
+            insights.append(html.P([
+                "Holiday season effect: Games released in Q4 (Oct-Dec) sold on average ",
+                html.Strong(f"{holiday_impact:.1f}%"), 
+                " more than games released in other quarters."
+            ]))
+    
+    return fig_seasonal, fig_monthly, fig_genre_quarterly, insights
+
+# Add after the seasonal analysis callback
+
+# Callback to populate the game dropdown for comparison
+@app.callback(
+    Output('game-comparison-dropdown', 'options'),
+    [Input('search-bar', 'value')],
+)
+def update_game_dropdown(search_term):
+    if search_term and len(search_term) >= 3:
+        # Search for games that match the search term
+        matching_games = df[df['title'].str.contains(search_term, case=False, na=False)]
+        
+        # Sort by total sales (most popular first)
+        matching_games = matching_games.sort_values('total_sales', ascending=False)
+        
+        # Create dropdown options
+        options = [
+            {'label': f"{row['title']} ({row['console']}, {int(row['release_year']) if not pd.isna(row['release_year']) else 'Unknown'})", 
+             'value': row['title']} 
+            for _, row in matching_games.head(50).iterrows()  # Limit to top 50 matches
+        ]
+        return options
+    
+    # If no search term or too short, return top games
+    top_games = df.sort_values('total_sales', ascending=False).head(30)
+    options = [
+        {'label': f"{row['title']} ({row['console']}, {int(row['release_year']) if not pd.isna(row['release_year']) else 'Unknown'})", 
+         'value': row['title']} 
+        for _, row in top_games.iterrows()
+    ]
+    return options
+
+# Callback to generate game comparison visualizations
+@app.callback(
+    [Output('comparison-sales-chart', 'figure'),
+     Output('comparison-regional-chart', 'figure'),
+     Output('comparison-metrics-chart', 'figure'),
+     Output('comparison-table', 'children'),
+     Output('comparison-message', 'children')],
+    [Input('compare-button', 'n_clicks')],
+    [State('game-comparison-dropdown', 'value')],
+    prevent_initial_call=True
+)
+def compare_games(n_clicks, selected_games):
+    if not selected_games or len(selected_games) < 2:
+        # Not enough games selected
+        return [
+            go.Figure().update_layout(title="Select at least 2 games to compare"),
+            go.Figure().update_layout(title="Select at least 2 games to compare"),
+            go.Figure().update_layout(title="Select at least 2 games to compare"),
+            html.P("Please select at least two games to compare.", className="text-center text-muted"),
+            html.P("Please select at least two games to compare using the dropdown above.", className="text-danger")
+        ]
+    
+    # Get data for selected games
+    comparison_data = df[df['title'].isin(selected_games)].copy()
+    
+    if len(comparison_data) < len(selected_games):
+        # Some selected games might have duplicate names, inform the user
+        return [
+            go.Figure().update_layout(title="Could not find all selected games"),
+            go.Figure().update_layout(title="Could not find all selected games"),
+            go.Figure().update_layout(title="Could not find all selected games"),
+            html.P("Some selected games were not found in the database.", className="text-center text-muted"),
+            html.P("One or more selected games could not be found. Try selecting different games.", className="text-warning")
+        ]
+    
+    # Limit to 5 games for better visualization
+    if len(comparison_data) > 5:
+        comparison_data = comparison_data.head(5)
+        message = html.P("Note: Comparison is limited to 5 games for better visualization.", className="text-info")
+    else:
+        message = html.P(f"Comparing {len(comparison_data)} games.", className="text-success")
+    
+    # 1. Sales comparison bar chart
+    fig_sales = px.bar(
+        comparison_data,
+        x='title',
+        y=['total_sales', 'na_sales', 'jp_sales', 'pal_sales', 'other_sales'],
+        title='Sales Comparison by Region',
+        labels={'value': 'Sales (millions)', 'title': 'Game', 'variable': 'Region'},
+        color_discrete_map={
+            'total_sales': 'purple',
+            'na_sales': 'blue',
+            'jp_sales': 'red',
+            'pal_sales': 'green',
+            'other_sales': 'orange'
+        },
+        barmode='group',
+        hover_data=['console', 'publisher', 'release_year']
+    )
+    
+    # 2. Regional sales distribution (percentage stacked bar)
+    # Calculate percentages
+    regional_percentages = comparison_data[['title', 'na_percent', 'jp_percent', 'pal_percent', 'other_percent']].copy()
+    
+    fig_regional = px.bar(
+        regional_percentages,
+        x='title',
+        y=['na_percent', 'jp_percent', 'pal_percent', 'other_percent'],
+        title='Regional Sales Distribution (%)',
+        labels={'value': 'Percentage of Total Sales', 'title': 'Game', 'variable': 'Region'},
+        color_discrete_map={
+            'na_percent': 'blue',
+            'jp_percent': 'red',
+            'pal_percent': 'green',
+            'other_percent': 'orange'
+        },
+        barmode='stack'
+    )
+    
+    # Update legend labels
+    region_names = {
+        'na_percent': 'North America',
+        'jp_percent': 'Japan',
+        'pal_percent': 'Europe/Australia',
+        'other_percent': 'Rest of World'
+    }
+    
+    newnames = {'na_percent': 'North America', 'jp_percent': 'Japan', 
+               'pal_percent': 'Europe/Australia', 'other_percent': 'Rest of World'}
+    fig_regional.for_each_trace(lambda t: t.update(name=newnames[t.name]))
+    
+    # 3. Spider chart for metrics comparison
+    # Normalize metrics for radar chart
+    metrics = comparison_data.copy()
+    
+    # Ensure we have critic scores
+    metrics['critic_score'] = metrics['critic_score'].fillna(0)
+    
+    # Create radar chart
+    fig_radar = go.Figure()
+    
+    # Define metrics to compare
+    metrics_to_compare = ['total_sales', 'critic_score', 'sales_per_point']
+    
+    # Get the max value for each metric for normalization
+    max_values = {metric: metrics[metric].max() for metric in metrics_to_compare}
+    
+    # Add a trace for each game
+    for _, game in metrics.iterrows():
+        # Normalize values (0-1 scale)
+        normalized_values = [game[metric] / max_values[metric] if max_values[metric] > 0 else 0 
+                             for metric in metrics_to_compare]
+        
+        # Add game trace
+        fig_radar.add_trace(go.Scatterpolar(
+            r=normalized_values + [normalized_values[0]],  # Close the loop
+            theta=['Total Sales', 'Critic Score', 'Commercial Efficiency'] + ['Total Sales'],  # Close the loop
+            fill='toself',
+            name=game['title']
+        ))
+    
+    fig_radar.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 1]
+            )
+        ),
+        title='Normalized Metrics Comparison',
+        showlegend=True
+    )
+    
+    # 4. Create a detailed comparison table
+    # Format the table data
+    table_data = []
+    
+    for _, game in comparison_data.iterrows():
+        release_date = pd.to_datetime(game['release_date']).strftime('%Y-%m-%d') if not pd.isna(game['release_date']) else 'Unknown'
+        
+        row_data = {
+            'Game': game['title'],
+            'Platform': game['console'],
+            'Publisher': game['publisher'],
+            'Genre': game['genre'],
+            'Release Date': release_date,
+            'Total Sales': f"{game['total_sales']:.2f}M" if not pd.isna(game['total_sales']) else 'N/A',
+            'Critic Score': f"{game['critic_score']:.1f}/10" if not pd.isna(game['critic_score']) else 'N/A',
+            'NA Sales': f"{game['na_sales']:.2f}M" if not pd.isna(game['na_sales']) else 'N/A',
+            'JP Sales': f"{game['jp_sales']:.2f}M" if not pd.isna(game['jp_sales']) else 'N/A',
+            'EU/AU Sales': f"{game['pal_sales']:.2f}M" if not pd.isna(game['pal_sales']) else 'N/A',
+            'RoW Sales': f"{game['other_sales']:.2f}M" if not pd.isna(game['other_sales']) else 'N/A',
+            'Sales/Point': f"{game['sales_per_point']:.2f}" if not pd.isna(game['sales_per_point']) else 'N/A'
+        }
+        table_data.append(row_data)
+    
+    # Create the table
+    table = dbc.Table.from_dataframe(
+        pd.DataFrame(table_data),
+        striped=True,
+        bordered=True,
+        hover=True,
+        responsive=True,
+        className="mt-3"
+    )
+    
+    comparison_table = html.Div([
+        html.H5("Detailed Game Comparison"),
+        table
+    ])
+    
+    return fig_sales, fig_regional, fig_radar, comparison_table, message
 
 # Run the app
 if __name__ == '__main__':
