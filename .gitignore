@@ -23,15 +23,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
-
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
 
 # Unit test / coverage reports
 htmlcov/
@@ -45,10 +36,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# Environment directories
+# Environments
 .env
 .venv
 env/
@@ -57,28 +45,21 @@ ENV/
 env.bak/
 venv.bak/
 
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Log files
+*.log
+
+# Local data files
+vgchartz-*.csv
+data/*.csv
+
 # IDE specific files
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# Project specific
-dashboard.log
-*.csv.gz
-*.xlsx
-*.csv
-vgchartz-*.csv
-*.log
-
-# Local configuration
-.env.local
-
-# Cache files
-.cache/
-
-# Logs
-*.log
 
 # OS specific files
 .DS_Store

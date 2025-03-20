@@ -1,104 +1,85 @@
 # Video Game Sales Dashboard
 
-An interactive dashboard for exploring and visualizing video game sales data using Dash and Plotly.
+An interactive data visualization and forecasting dashboard for analyzing video game sales trends.
 
 ## Features
 
-- Interactive filtering by year, platform, genre, publisher, and more
-- Multiple visualization types including bar charts, pie charts, scatter plots, and heatmaps
-- Sales analysis by region, genre, platform, and publisher
-- Trend analysis over time
-- Game comparison functionality
-- Data export capabilities
-- Seasonal sales analysis
-- Predictive analytics and forecasting
-- Responsive design with theme switching
+- **Interactive Data Exploration**: Filter and visualize video game sales data by year, platform, genre, publisher, and more
+- **Advanced Sales Forecasting**: Predict future sales trends using multiple models:
+  - Linear Regression
+  - Polynomial Regression
+  - Ridge Regression
+  - ARIMA Time Series Analysis
+- **Genre Analysis**: Visualize sales distribution across different game genres
+- **Seasonal Trends**: Analyze how sales vary throughout the year
+- **Platform Comparison**: Compare sales performance across different gaming platforms
+- **Publisher Insights**: Discover top publishers and their market share
+- **Data Export**: Download visualizations and filtered data
 
-## Project Structure
+## Getting Started
 
-```
-video-game-sales-dashboard/
-├── main.py                     # Main entry point
-├── requirements.txt            # Dependencies
-├── README.md                   # Project documentation
-├── LICENSE                     # MIT License
-├── CONTRIBUTING.md             # Contribution guidelines
-├── clean.py                    # Project cleanup utility
-├── vgchartz-2024.csv           # Dataset (excluded from Git)
-└── src/                        # Source code
-    ├── app.py                  # Main app initialization
-    ├── components/             # UI components
-    │   ├── filters.py          # Filter panel
-    │   ├── modals.py           # Modal components
-    │   └── tabs.py             # Tab components
-    ├── data/                   # Data handling
-    │   └── data_loader.py      # Data loading and preprocessing
-    ├── layouts/                # UI layouts
-    │   └── main_layout.py      # Main dashboard layout
-    ├── utils/                  # Utilities
-    │   └── cache.py            # Caching implementation
-    └── callbacks/              # Dashboard interactivity
-        ├── comparison_callbacks.py    # Game comparison
-        ├── export_callbacks.py        # Data export
-        ├── forecast_callbacks.py      # Sales forecasting
-        ├── game_details_callbacks.py  # Game details modal
-        ├── graph_callbacks.py         # Main visualizations
-        ├── register_callbacks.py      # Callback registration
-        ├── seasonal_callbacks.py      # Seasonal analysis
-        └── theme_callbacks.py         # Theme switching
+### Prerequisites
+
+- Python 3.9+
+- pip
+
+### Installation
+
+1. Clone the repository
+```bash
+git clone https://github.com/yourusername/video-game-sales-dashboard.git
+cd video-game-sales-dashboard
 ```
 
-## Setup and Installation
-
-1. Clone this repository
-2. Install the required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Run the dashboard:
-   ```
-   python main.py
-   ```
-4. Open your browser and go to `http://localhost:8050`
-
-## Dependencies
-
-- dash
-- dash-bootstrap-components
-- plotly
-- pandas
-- numpy
-- scikit-learn
-
-## Dataset
-
-The dashboard uses the VGChartz video game sales dataset that includes:
-- Game title, platform, genre, publisher, developer
-- Release date
-- Global and regional sales figures (North America, Japan, Europe, others)
-- Critic scores
-
-Note: The dataset file (vgchartz-2024.csv) is not included in the repository due to its size. You'll need to download it separately from [VGChartz](https://www.vgchartz.com/) or use a compatible dataset.
-
-## Development
-
-### Cleaning the Project
-
-To clean up temporary files before committing to GitHub, run:
-
-```
-python clean.py
+2. Install dependencies
+```bash
+pip install -r requirements.txt
 ```
 
-This will remove:
-- `__pycache__` directories
-- `.pyc` files
-- Log files
+3. Run the application
+```bash
+python main.py
+```
 
-### Contributing
+4. Open your browser and navigate to `http://127.0.0.1:8050`
 
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
+## Usage
+
+1. **Data Filtering**: Use the filter panel to select specific platforms, genres, years, or publishers
+2. **Visualization**: Explore different tabs to view various charts and insights
+3. **Forecasting**: Navigate to the Forecast tab, set parameters, and generate sales projections
+4. **Export**: Download visualizations or filtered data using the export buttons
+
+## Technical Details
+
+### Architecture
+
+The dashboard is built with:
+- **Dash**: Web application framework for interactive data visualization
+- **Plotly**: Interactive plotting library
+- **Pandas**: Data manipulation and analysis
+- **scikit-learn**: Machine learning models for forecasting
+- **statsmodels**: Time series analysis and ARIMA modeling
+
+### File Structure
+
+```
+├── main.py                   # Application entry point
+├── requirements.txt          # Project dependencies
+├── src/
+│   ├── app.py                # Dash application configuration
+│   ├── components/           # UI components
+│   ├── callbacks/            # Interactive callback functions
+│   ├── data/                 # Data loading and processing
+│   └── utils/                # Utility functions
+├── assets/                   # Static assets (CSS, images)
+└── data/                     # Dataset files
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
