@@ -167,11 +167,13 @@ def register_seasonal_callbacks(app, df, df_cache):
             )
         
         # Quarterly genre distribution
-        seasonal_df_with_sales['quarter'] = 'Q' + seasonal_df_with_sales['release_quarter'].astype(str)
-        quarter_genre = seasonal_df_with_sales.groupby(['quarter', 'genre'])['total_sales'].sum().reset_index()
+        seasonal_df = filtered_df.copy()
+        # Use .loc to avoid SettingWithCopyWarning
+        seasonal_df.loc[:, 'quarter'] = pd.to_datetime(seasonal_df['release_date']).dt.quarter
+        quarter_genre = seasonal_df.groupby(['quarter', 'genre'])['total_sales'].sum().reset_index()
         
         # Limit to top genres
-        top_genres = seasonal_df_with_sales.groupby('genre')['total_sales'].sum().nlargest(5).index.tolist()
+        top_genres = seasonal_df.groupby('genre')['total_sales'].sum().nlargest(5).index.tolist()
         quarter_genre_filtered = quarter_genre[quarter_genre['genre'].isin(top_genres)]
         
         fig_quarter_genre = px.bar(

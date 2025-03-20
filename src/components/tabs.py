@@ -117,7 +117,9 @@ def create_tab_content():
                             id='model-type',
                             options=[
                                 {'label': 'Linear Regression', 'value': 'linear'},
-                                {'label': 'Polynomial Regression', 'value': 'poly'}
+                                {'label': 'Polynomial Regression', 'value': 'poly'},
+                                {'label': 'Ridge Regression', 'value': 'ridge'},
+                                {'label': 'ARIMA (Time Series)', 'value': 'arima'}
                             ],
                             value='linear',
                             labelStyle={'display': 'block', 'margin-bottom': '5px'}
