@@ -1,11 +1,47 @@
-dash==2.16.1
+# Core dependencies
+dash==2.17.1
 dash-bootstrap-components==1.5.0
+dash-table==5.0.0
 pandas==2.2.1
 numpy==1.26.4
-plotly==5.19.0
-scikit-learn==1.4.1
-dash-table==5.0.0
-xlsxwriter==3.1.9
-gunicorn==22.0.0
-pdfkit==1.0.0
-statsmodels==0.14.4
+plotly==5.20.0
+scikit-learn==1.4.2
+statsmodels==0.15.0
+python-dateutil==2.8.2
+pytz==2024.1
+xlsxwriter==3.2.0
+
+# Performance optimization
+numba==0.60.0
+joblib==1.4.2
+cachetools==5.5.0
+psutil==5.9.8
+memory-profiler==0.61.0
+
+# Development tools
+pytest==8.2.0
+black==24.10.0
+flake8==7.0.0
+mypy==1.8.0
+pylint==3.1.0
+
+# Type checking
+types-requests==2.31.0.20240722
+types-python-dateutil==2.8.19.20240106
+
+# Testing and coverage
+pytest-cov==6.0.0
+pytest-mock==3.12.0
+coverage==7.4.3
+
+# Documentation
+sphinx==7.2.6
+sphinx-rtd-theme==2.0.0
+sphinx-autodoc-typehints==1.26.0
+
+# Security
+cryptography==42.0.5
+python-dotenv==1.0.1
+
+# Utilities
+tqdm==4.66.2

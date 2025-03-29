@@ -11,7 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def register_graph_callbacks(app, df, df_cache):
+def register_graph_callbacks(app, df, df_cache, plotly_config=None):
     """
     Register callbacks for the graph visualizations
     
@@ -19,7 +19,15 @@ def register_graph_callbacks(app, df, df_cache):
         app (dash.Dash): The Dash application
         df (pandas.DataFrame): The complete dataframe
         df_cache (DataFrameCache): Cache for filtered dataframes
+        plotly_config (dict, optional): Configuration options for Plotly charts
     """
+    # Default config if none provided
+    if plotly_config is None:
+        plotly_config = {"use_custom_templates": True, "simple_charts": False}
+        
+    use_custom_templates = plotly_config.get("use_custom_templates", True)
+    simple_charts = plotly_config.get("simple_charts", False)
+    
     @app.callback(
         [Output('sales-by-platform', 'figure'),
          Output('sales-by-genre', 'figure'),
@@ -76,7 +84,7 @@ def register_graph_callbacks(app, df, df_cache):
         # Sales by platform chart
         # We need to filter out NaN values for the groupby operation
         platform_sales_df = filtered_df.dropna(subset=['total_sales'])
-        platform_sales = platform_sales_df.groupby('console')['total_sales'].sum().reset_index()
+        platform_sales = platform_sales_df.groupby('console', observed=False)['total_sales'].sum().reset_index()
         platform_sales = platform_sales.sort_values('total_sales', ascending=False).head(display_count)
         
         # For PS5 or other platforms with data but no sales, we want to show them in the chart
@@ -89,15 +97,49 @@ def register_graph_callbacks(app, df, df_cache):
             
             platform_sales = platform_sales.sort_values('total_sales', ascending=False)
         
-        fig_platform = px.bar(
-            platform_sales, 
-            x='console', 
-            y='total_sales',
-            title=f'Total Sales by Platform (Top {len(platform_sales)})',
-            labels={'console': 'Platform', 'total_sales': 'Total Sales (millions)'},
-            color='total_sales',
-            color_continuous_scale='Viridis'
-        )
+        # Create platform sales chart with compatibility fixes if needed
+        if simple_charts:
+            fig_platform = go.Figure(go.Bar(
+                x=platform_sales['console'],
+                y=platform_sales['total_sales'],
+                text=platform_sales['total_sales']
+            ))
+            fig_platform.update_layout(
+                title=f'Total Sales by Platform (Top {len(platform_sales)})',
+                xaxis_title='Platform',
+                yaxis_title='Total Sales (millions)'
+            )
+        else:
+            # Try with px.bar, but if that fails, fall back to go.Figure
+            try:
+                # Use px.bar with minimal styling to avoid compatibility issues
+                fig_platform = px.bar(
+                    platform_sales, 
+                    x='console', 
+                    y='total_sales',
+                    title=f'Total Sales by Platform (Top {len(platform_sales)})',
+                    labels={'console': 'Platform', 'total_sales': 'Total Sales (millions)'}
+                )
+                
+                # Only add color scale if not using simple charts
+                if not simple_charts and use_custom_templates:
+                    fig_platform.update_traces(
+                        marker_color=platform_sales['total_sales'],
+                        marker_colorscale='Viridis'
+                    )
+            except ValueError:
+                # Fall back to basic go.Figure approach
+                fig_platform = go.Figure(go.Bar(
+                    x=platform_sales['console'],
+                    y=platform_sales['total_sales'],
+                    text=platform_sales['total_sales'].round(2),
+                    marker_color='steelblue'
+                ))
+                fig_platform.update_layout(
+                    title=f'Total Sales by Platform (Top {len(platform_sales)})',
+                    xaxis_title='Platform',
+                    yaxis_title='Total Sales (millions)'
+                )
         
         # Add annotations for special cases
         annotations = []
@@ -142,31 +184,55 @@ def register_graph_callbacks(app, df, df_cache):
         
         # Sales by genre chart
         genre_sales_df = filtered_df.dropna(subset=['total_sales'])
-        genre_sales = genre_sales_df.groupby('genre')['total_sales'].sum().reset_index()
-        genre_sales = genre_sales.sort_values('total_sales', ascending=False)
+        genre_sales = genre_sales_df.groupby('genre', observed=False)['total_sales'].sum().reset_index()
+        genre_sales = genre_sales.sort_values('total_sales', ascending=False).head(display_count)
         
-        fig_genre = px.pie(
-            genre_sales, 
-            values='total_sales', 
-            names='genre',
-            title='Sales Distribution by Genre',
-            hole=0.3,
-            color_discrete_sequence=px.colors.qualitative.Set3
-        )
+        if simple_charts:
+            fig_genre = go.Figure(go.Pie(
+                labels=genre_sales['genre'],
+                values=genre_sales['total_sales'],
+                hole=0.3
+            ))
+            fig_genre.update_layout(title='Sales Distribution by Genre')
+        else:
+            fig_genre = px.pie(
+                genre_sales, 
+                values='total_sales', 
+                names='genre',
+                title='Sales Distribution by Genre',
+                hole=0.3
+            )
+            # Only apply custom colors if not using simple charts
+            if use_custom_templates and not simple_charts:
+                fig_genre.update_traces(
+                    marker=dict(colors=px.colors.qualitative.Set3)
+                )
         
         # Sales over time chart
-        yearly_sales_df = filtered_df.dropna(subset=['total_sales'])
-        yearly_sales = yearly_sales_df.groupby('release_year')['total_sales'].sum().reset_index()
+        yearly_sales_df = filtered_df.dropna(subset=['total_sales', 'release_year'])
+        yearly_sales = yearly_sales_df.groupby('release_year', observed=False)['total_sales'].sum().reset_index()
         yearly_sales = yearly_sales.sort_values('release_year')
         
-        fig_time = px.line(
-            yearly_sales, 
-            x='release_year', 
-            y='total_sales',
-            title='Video Game Sales Trend Over Time',
-            labels={'release_year': 'Year', 'total_sales': 'Total Sales (millions)'},
-            markers=True
-        )
+        if simple_charts:
+            fig_time = go.Figure(go.Scatter(
+                x=yearly_sales['release_year'],
+                y=yearly_sales['total_sales'],
+                mode='lines+markers'
+            ))
+            fig_time.update_layout(
+                title='Video Game Sales Trend Over Time',
+                xaxis_title='Year',
+                yaxis_title='Total Sales (millions)'
+            )
+        else:
+            fig_time = px.line(
+                yearly_sales, 
+                x='release_year', 
+                y='total_sales',
+                title='Video Game Sales Trend Over Time',
+                labels={'release_year': 'Year', 'total_sales': 'Total Sales (millions)'},
+                markers=True
+            )
         
         # Add annotations for platforms without sales data if needed
         if platforms_without_sales and not fig_time.layout.annotations:
@@ -185,27 +251,58 @@ def register_graph_callbacks(app, df, df_cache):
         
         # Regional sales over time
         regional_yearly_df = filtered_df.dropna(subset=['na_sales', 'jp_sales', 'pal_sales', 'other_sales'], how='all')
-        regional_yearly = regional_yearly_df.groupby('release_year')[
+        regional_yearly = regional_yearly_df.groupby('release_year', observed=False)[
             ['na_sales', 'jp_sales', 'pal_sales', 'other_sales']
         ].sum().reset_index()
         
-        fig_regional_time = px.area(
-            regional_yearly, 
-            x='release_year', 
-            y=['na_sales', 'jp_sales', 'pal_sales', 'other_sales'],
-            title='Regional Sales Over Time',
-            labels={
-                'release_year': 'Year', 
-                'value': 'Sales (millions)',
-                'variable': 'Region'
-            },
-            color_discrete_map={
-                'na_sales': 'blue',
-                'jp_sales': 'red',
-                'pal_sales': 'green',
-                'other_sales': 'orange'
-            }
-        )
+        if simple_charts:
+            fig_regional_time = go.Figure()
+            for col, color in [('na_sales', 'blue'), ('jp_sales', 'red'), 
+                              ('pal_sales', 'green'), ('other_sales', 'orange')]:
+                fig_regional_time.add_trace(go.Scatter(
+                    x=regional_yearly['release_year'],
+                    y=regional_yearly[col],
+                    mode='lines',
+                    stackgroup='one',
+                    name=col.replace('_sales', '').upper(),
+                    line=dict(color=color)
+                ))
+            fig_regional_time.update_layout(
+                title='Regional Sales Over Time',
+                xaxis_title='Year',
+                yaxis_title='Sales (millions)'
+            )
+        else:
+            fig_regional_time = px.area(
+                regional_yearly, 
+                x='release_year', 
+                y=['na_sales', 'jp_sales', 'pal_sales', 'other_sales'],
+                title='Regional Sales Over Time',
+                labels={
+                    'release_year': 'Year', 
+                    'value': 'Sales (millions)',
+                    'variable': 'Region'
+                }
+            )
+            
+            # Apply custom colors if not using simple charts
+            if use_custom_templates and not simple_charts:
+                fig_regional_time.update_traces(
+                    line=dict(width=0.5),
+                    selector=dict(type='scatter')
+                )
+                
+                # Apply color map
+                colors = {
+                    'na_sales': 'blue',
+                    'jp_sales': 'red',
+                    'pal_sales': 'green',
+                    'other_sales': 'orange'
+                }
+                
+                for i, col in enumerate(['na_sales', 'jp_sales', 'pal_sales', 'other_sales']):
+                    fig_regional_time.data[i].line.color = colors[col]
+                    fig_regional_time.data[i].fillcolor = colors[col]
         
         # Add annotations for platforms without sales data if needed
         if platforms_without_sales and not fig_regional_time.layout.annotations:
@@ -235,25 +332,43 @@ def register_graph_callbacks(app, df, df_cache):
         
         top_games = filtered_df.sort_values(sort_col, ascending=False)
         top_games = top_games.dropna(subset=[sort_col]).head(display_count)
-        
-        fig_top_games = px.bar(
-            top_games,
-            x='total_sales',
-            y='title',
-            orientation='h',
-            title=f'Top {len(top_games)} Games by {sort_label}',
-            labels={'total_sales': 'Total Sales (millions)', 'title': 'Game Title'},
-            color='genre',
-            text='total_sales',
-            hover_data=['release_year', 'publisher', 'critic_score', 'console']
-        )
-        
-        fig_top_games.update_traces(texttemplate='%{text:.1f}M', textposition='outside')
-        fig_top_games.update_layout(yaxis={'categoryorder':'total ascending'})
-        
+
+        if simple_charts:
+            fig_top_games = go.Figure(go.Bar(
+                x=top_games['total_sales'],
+                y=top_games['title'],
+                orientation='h',
+                text=top_games['total_sales'],
+                hovertemplate='%{y}<br>Sales: %{x}<br>Year: %{customdata[0]}<br>Publisher: %{customdata[1]}<br>Score: %{customdata[2]}<br>Platform: %{customdata[3]}',
+                customdata=top_games[['release_year', 'publisher', 'critic_score', 'console']]
+            ))
+            fig_top_games.update_layout(
+                title=f'Top {len(top_games)} Games by {sort_label}',
+                xaxis_title='Total Sales (millions)',
+                yaxis_title='Game Title'
+            )
+        else:
+            fig_top_games = px.bar(
+                top_games,
+                x='total_sales',
+                y='title',
+                orientation='h',
+                title=f'Top {len(top_games)} Games by {sort_label}',
+                labels={'total_sales': 'Total Sales (millions)', 'title': 'Game Title'},
+                text='total_sales',
+                hover_data=['release_year', 'publisher', 'critic_score', 'console']
+            )
+            
+            # Only add color by genre if not using simple charts
+            if use_custom_templates and not simple_charts:
+                fig_top_games.update_traces(
+                    marker_color=top_games['genre'].astype('category').cat.codes,
+                    marker_colorscale='Viridis'
+                )
+            
         # Publisher market share
         publisher_sales_df = filtered_df.dropna(subset=['total_sales'])
-        publisher_sales = publisher_sales_df.groupby('publisher')['total_sales'].sum().reset_index()
+        publisher_sales = publisher_sales_df.groupby('publisher', observed=False)['total_sales'].sum().reset_index()
         publisher_sales = publisher_sales.sort_values('total_sales', ascending=False).head(display_count)
         
         fig_publisher = px.pie(
@@ -335,7 +450,7 @@ def register_graph_callbacks(app, df, df_cache):
         
         regional_data['region'] = regional_data['region'].map(region_labels)
         
-        regional_totals = regional_data.groupby('region')['sales'].sum().reset_index()
+        regional_totals = regional_data.groupby('region', observed=False)['sales'].sum().reset_index()
         
         fig_regional = px.bar(
             regional_totals,
@@ -364,11 +479,11 @@ def register_graph_callbacks(app, df, df_cache):
         
         # Genre trends over time
         genre_yearly_df = filtered_df.dropna(subset=['total_sales'])
-        genre_yearly = genre_yearly_df.groupby(['release_year', 'genre'])['total_sales'].sum().reset_index()
+        genre_yearly = genre_yearly_df.groupby(['release_year', 'genre'], observed=False)['total_sales'].sum().reset_index()
         genre_yearly = genre_yearly[~genre_yearly['release_year'].isna()]
         
         # Filter to top genres for clarity
-        top_genres = genre_yearly_df.groupby('genre')['total_sales'].sum().nlargest(8).index.tolist()
+        top_genres = genre_yearly_df.groupby('genre', observed=False)['total_sales'].sum().nlargest(8).index.tolist()
         genre_yearly_filtered = genre_yearly[genre_yearly['genre'].isin(top_genres)]
         
         fig_genre_trends = px.line(
@@ -401,7 +516,7 @@ def register_graph_callbacks(app, df, df_cache):
         
         # Console generation comparison
         gen_sales_df = filtered_df.dropna(subset=['total_sales'])
-        gen_sales = gen_sales_df.groupby('console_gen')['total_sales'].sum().reset_index()
+        gen_sales = gen_sales_df.groupby('console_gen', observed=False)['total_sales'].sum().reset_index()
         gen_sales = gen_sales.sort_values('total_sales', ascending=False)
         
         fig_console_gen = px.bar(
@@ -415,7 +530,7 @@ def register_graph_callbacks(app, df, df_cache):
         )
         
         # Add average critic score on secondary y-axis
-        gen_scores = filtered_df.groupby('console_gen')['critic_score'].mean().reset_index()
+        gen_scores = filtered_df.groupby('console_gen', observed=False)['critic_score'].mean().reset_index()
         gen_scores = gen_scores.sort_values('console_gen')
         
         fig_console_gen.add_trace(
@@ -462,7 +577,7 @@ def register_graph_callbacks(app, df, df_cache):
         
         # Calculate metrics for each publisher
         publisher_data_clean = publisher_data.dropna(subset=['total_sales', 'critic_score'], how='all')
-        publisher_metrics = publisher_data_clean.groupby('publisher').agg({
+        publisher_metrics = publisher_data_clean.groupby('publisher', observed=False).agg({
             'total_sales': 'sum',
             'critic_score': 'mean',
             'title': 'count'

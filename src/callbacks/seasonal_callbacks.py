@@ -9,7 +9,7 @@ import numpy as np
 from dash import html
 from src.data.data_loader import apply_filters
 
-def register_seasonal_callbacks(app, df, df_cache):
+def register_seasonal_callbacks(app, df, df_cache, plotly_config=None):
     """
     Register callbacks for seasonal analysis functionality
     
@@ -17,7 +17,12 @@ def register_seasonal_callbacks(app, df, df_cache):
         app (dash.Dash): The Dash application
         df (pandas.DataFrame): The complete dataframe
         df_cache (DataFrameCache): Cache for filtered dataframes
+        plotly_config (dict, optional): Configuration options for Plotly charts
     """
+    # Default config if none provided
+    if plotly_config is None:
+        plotly_config = {"use_custom_templates": True, "simple_charts": False}
+    
     @app.callback(
         [Output('seasonal-sales-chart', 'figure'),
          Output('monthly-sales-heatmap', 'figure'),
@@ -90,7 +95,7 @@ def register_seasonal_callbacks(app, df, df_cache):
             return empty_fig, empty_fig, empty_fig, empty_text
         
         # Monthly sales distribution
-        monthly_sales = seasonal_df_with_sales.groupby('release_month')['total_sales'].sum().reset_index()
+        monthly_sales = seasonal_df_with_sales.groupby('release_month', observed=False)['total_sales'].sum().reset_index()
         month_names = {
             1: 'January', 2: 'February', 3: 'March', 4: 'April', 5: 'May', 6: 'June',
             7: 'July', 8: 'August', 9: 'September', 10: 'October', 11: 'November', 12: 'December'
@@ -98,15 +103,45 @@ def register_seasonal_callbacks(app, df, df_cache):
         monthly_sales['month_name'] = monthly_sales['release_month'].map(month_names)
         monthly_sales = monthly_sales.sort_values('release_month')
         
-        fig_seasonal_sales = px.bar(
-            monthly_sales,
-            x='month_name',
-            y='total_sales',
-            title='Monthly Sales Distribution',
-            labels={'month_name': 'Month', 'total_sales': 'Total Sales (millions)'},
-            color='total_sales',
-            color_continuous_scale='Viridis'
-        )
+        # Use a simpler chart configuration to avoid the ValueError
+        use_simple_charts = plotly_config.get("simple_charts", False)
+        
+        if use_simple_charts:
+            # Use more basic go.Figure approach
+            fig_seasonal_sales = go.Figure(go.Bar(
+                x=monthly_sales['month_name'],
+                y=monthly_sales['total_sales'],
+                text=monthly_sales['total_sales'].round(2),
+                marker_color='steelblue'
+            ))
+            fig_seasonal_sales.update_layout(
+                title='Monthly Sales Distribution',
+                xaxis_title='Month',
+                yaxis_title='Total Sales (millions)'
+            )
+        else:
+            try:
+                # Try with px.bar but without color parameter that can cause issues
+                fig_seasonal_sales = px.bar(
+                    monthly_sales,
+                    x='month_name',
+                    y='total_sales',
+                    title='Monthly Sales Distribution',
+                    labels={'month_name': 'Month', 'total_sales': 'Total Sales (millions)'}
+                )
+            except ValueError:
+                # Fallback to simpler version if px.bar fails
+                fig_seasonal_sales = go.Figure(go.Bar(
+                    x=monthly_sales['month_name'],
+                    y=monthly_sales['total_sales'],
+                    text=monthly_sales['total_sales'].round(2),
+                    marker_color='steelblue'
+                ))
+                fig_seasonal_sales.update_layout(
+                    title='Monthly Sales Distribution',
+                    xaxis_title='Month',
+                    yaxis_title='Total Sales (millions)'
+                )
         
         # Add annotations for platforms without sales data if needed
         if platforms_without_sales:
@@ -126,7 +161,7 @@ def register_seasonal_callbacks(app, df, df_cache):
         # Monthly sales heatmap by year
         if 'release_year' in seasonal_df_with_sales.columns:
             # Group by year and month
-            year_month_sales = seasonal_df_with_sales.groupby(['release_year', 'release_month'])['total_sales'].sum().reset_index()
+            year_month_sales = seasonal_df_with_sales.groupby(['release_year', 'release_month'], observed=False)['total_sales'].sum().reset_index()
             
             # Pivot the data for the heatmap
             pivot_data = year_month_sales.pivot(
@@ -170,10 +205,10 @@ def register_seasonal_callbacks(app, df, df_cache):
         seasonal_df = filtered_df.copy()
         # Use .loc to avoid SettingWithCopyWarning
         seasonal_df.loc[:, 'quarter'] = pd.to_datetime(seasonal_df['release_date']).dt.quarter
-        quarter_genre = seasonal_df.groupby(['quarter', 'genre'])['total_sales'].sum().reset_index()
+        quarter_genre = seasonal_df.groupby(['quarter', 'genre'], observed=False)['total_sales'].sum().reset_index()
         
         # Limit to top genres
-        top_genres = seasonal_df.groupby('genre')['total_sales'].sum().nlargest(5).index.tolist()
+        top_genres = seasonal_df.groupby('genre', observed=False)['total_sales'].sum().nlargest(5).index.tolist()
         quarter_genre_filtered = quarter_genre[quarter_genre['genre'].isin(top_genres)]
         
         fig_quarter_genre = px.bar(
@@ -220,7 +255,7 @@ def register_seasonal_callbacks(app, df, df_cache):
             for genre in top_genres:
                 genre_df = seasonal_df_with_sales[seasonal_df_with_sales['genre'] == genre]
                 if len(genre_df) > 0:
-                    peak_quarter = genre_df.groupby('release_quarter')['total_sales'].sum().idxmax()
+                    peak_quarter = genre_df.groupby('release_quarter', observed=False)['total_sales'].sum().idxmax()
                     genre_quarters[genre] = 'Q' + str(peak_quarter)
             
             genre_insights = [f"{genre}: peak in {quarter}" for genre, quarter in genre_quarters.items()]

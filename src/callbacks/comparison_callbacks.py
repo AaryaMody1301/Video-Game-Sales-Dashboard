@@ -8,14 +8,19 @@ import pandas as pd
 import numpy as np
 from dash import html, dash_table
 
-def register_comparison_callbacks(app, df):
+def register_comparison_callbacks(app, df, plotly_config=None):
     """
     Register callbacks for game comparison functionality
     
     Args:
         app (dash.Dash): The Dash application
         df (pandas.DataFrame): The complete dataframe
+        plotly_config (dict, optional): Configuration options for Plotly charts
     """
+    # Default config if none provided
+    if plotly_config is None:
+        plotly_config = {"use_custom_templates": True, "simple_charts": False}
+    
     @app.callback(
         Output('game-comparison-dropdown', 'options'),
         [Input('search-bar', 'value')],

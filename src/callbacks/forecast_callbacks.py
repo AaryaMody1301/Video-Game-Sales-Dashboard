@@ -287,7 +287,7 @@ def fit_and_predict_cached(model_type, X_train_key, y_train_key, future_years_ke
         model_stats = {'mse': 0, 'r2': 0, 'error': str(e)}
         return future_sales, prediction_intervals, model_stats
 
-def register_forecast_callbacks(app, df, df_cache):
+def register_forecast_callbacks(app, df, df_cache, plotly_config=None):
     """
     Register callbacks for forecasting functionality
     
@@ -295,7 +295,12 @@ def register_forecast_callbacks(app, df, df_cache):
         app (dash.Dash): The Dash application
         df (pandas.DataFrame): The complete dataframe
         df_cache (DataFrameCache): Cache for filtered dataframes
+        plotly_config (dict, optional): Configuration options for Plotly charts
     """
+    # Default config if none provided
+    if plotly_config is None:
+        plotly_config = {"use_custom_templates": True, "simple_charts": False}
+    
     @app.callback(
         [Output('sales-forecast-chart', 'figure'),
          Output('genre-forecast-chart', 'figure')],
@@ -324,7 +329,7 @@ def register_forecast_callbacks(app, df, df_cache):
                                       selected_genres, selected_publishers, [0, 10], None)
             
             # Time series forecast
-            yearly_sales = filtered_df.groupby('release_year')['total_sales'].sum().reset_index()
+            yearly_sales = filtered_df.groupby('release_year', observed=False)['total_sales'].sum().reset_index()
             yearly_sales = yearly_sales.sort_values('release_year')
             yearly_sales = yearly_sales[~yearly_sales['release_year'].isna()]
             
@@ -477,11 +482,11 @@ def register_forecast_callbacks(app, df, df_cache):
                 )
             
             # Genre forecast - Use parallel processing approach for efficiency
-            genre_yearly = filtered_df.groupby(['release_year', 'genre'])['total_sales'].sum().reset_index()
+            genre_yearly = filtered_df.groupby(['release_year', 'genre'], observed=False)['total_sales'].sum().reset_index()
             genre_yearly = genre_yearly[~genre_yearly['release_year'].isna()]
             
             # Get top genres for clarity
-            top_genres = filtered_df.groupby('genre')['total_sales'].sum().nlargest(5).index.tolist()
+            top_genres = filtered_df.groupby('genre', observed=False)['total_sales'].sum().nlargest(5).index.tolist()
             genre_yearly_filtered = genre_yearly[genre_yearly['genre'].isin(top_genres)]
             
             # Create a genre forecast with improved models
