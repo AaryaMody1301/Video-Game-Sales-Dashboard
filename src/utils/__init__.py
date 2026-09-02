@@ -1,1 +1,1 @@
-"""Utils package for helper functions and classes""" 
+"""Shared dashboard utilities."""
