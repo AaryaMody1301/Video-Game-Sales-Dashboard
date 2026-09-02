@@ -25,18 +25,14 @@ Contributions are welcome. Keep changes focused, testable, and consistent with t
 
 ## Before opening a pull request
 
-Run the same correctness checks used by GitHub Actions:
+Run the same checks enforced by GitHub Actions:
 
 ```bash
-flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+flake8 . --count --max-complexity=10 --max-line-length=127 --statistics
 pytest -q
 ```
 
-You can also inspect the broader, non-blocking style and complexity report with:
-
-```bash
-flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-```
+The repository maintains a zero-warning Flake8 baseline. New style, undefined-name, or complexity warnings should be fixed before opening a pull request.
 
 For code you change, follow PEP 8, remove unused imports, avoid trailing whitespace, and keep new functions small enough to test independently.
 
@@ -54,7 +50,7 @@ If a change affects cleaning, derived fields, chart definitions, forecasting, or
 1. Keep the PR scoped to one coherent change.
 2. Update README or data documentation when user-facing behavior changes.
 3. Confirm the application initializes on a clean install.
-4. Confirm the fatal lint gate and test suite pass.
+4. Confirm the full Flake8 gate and test suite pass.
 5. Describe any known limitation or follow-up work in the PR body.
 
 ## Reporting bugs
