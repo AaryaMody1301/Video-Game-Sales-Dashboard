@@ -2,8 +2,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
 
 # Distribution / packaging
@@ -24,43 +22,45 @@ wheels/
 .installed.cfg
 *.egg
 
-# Unit test / coverage reports
+# Tests / coverage / type checking
 htmlcov/
 .tox/
 .coverage
 .coverage.*
-.cache
+.cache/
 nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+.mypy_cache/
 
-# Environments
+# Environments and secrets
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
 
-# Jupyter Notebook
-.ipynb_checkpoints
+# Jupyter
+.ipynb_checkpoints/
 
-# Log files
+# Runtime files
+logs/
 *.log
 
-# Local data files
-vgchartz-*.csv
+# Optional local datasets placed under data/
 data/*.csv
+data/*.zip
 
-# IDE specific files
+# IDE files
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# OS specific files
+# OS files
 .DS_Store
 Thumbs.db
