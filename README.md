@@ -14,7 +14,7 @@ An interactive Dash application for exploring reported video game sales across p
 - Release-season analysis that clearly distinguishes release timing from transaction timing.
 - Responsive Bootstrap layout and switchable visual themes.
 - Deterministic sample-data mode for quick evaluation without relying on the full CSV.
-- Automated CI with dependency installation, fatal lint checks, and pytest regression coverage.
+- Automated CI with dependency installation, a full Flake8 style/complexity gate, and pytest regression coverage.
 
 ## Tech Stack
 
@@ -126,28 +126,24 @@ Install development dependencies:
 pip install -r requirements-dev.txt
 ```
 
-Run tests:
+Run the same checks enforced by GitHub Actions:
 
 ```bash
+flake8 . --count --max-complexity=10 --max-line-length=127 --statistics
 pytest -q
 ```
 
-Run the fatal CI lint gate locally:
-
-```bash
-flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-```
-
-The workflow also reports broader style/complexity warnings without blocking CI so correctness failures remain distinct from cleanup debt.
+The repository currently maintains a zero-warning Flake8 baseline, so new style, undefined-name, or complexity regressions fail CI instead of accumulating as cleanup debt.
 
 ## Reliability Work Completed
 
-The repository has been hardened in four stages:
+The repository has been hardened in four implementation phases plus a final audit:
 
 1. **CI and test foundation** — activated CI for `master`, fixed dependency installation, and added regression coverage.
 2. **Analytical correctness** — corrected date semantics, decade/generation mapping, score handling, filter bounds, and sample-data consistency.
 3. **Advanced-feature reliability** — repaired ARIMA and time-aware validation, game identity handling, modal selection, and export behavior.
 4. **Portfolio/runtime cleanup** — simplified app/cache lifecycle, removed pseudo-async startup, added responsive layout, separated runtime/dev dependencies, and documented dataset limitations.
+5. **Final repository audit** — removed dead utilities, decomposed graph-generation logic, added source-schema validation, expanded regression coverage, and established a zero-warning Flake8 baseline.
 
 ## License
 

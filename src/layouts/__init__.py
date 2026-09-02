@@ -1,1 +1,1 @@
-"""Layout components package""" 
+"""Dashboard layout builders."""

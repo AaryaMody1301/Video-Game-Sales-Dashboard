@@ -1,3 +1,1 @@
-"""
-Video Game Sales Dashboard Package
-""" 
+"""Video Game Sales Dashboard package."""

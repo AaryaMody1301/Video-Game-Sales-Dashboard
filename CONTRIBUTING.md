@@ -1,75 +1,62 @@
 # Contributing to Video Game Sales Dashboard
 
-Thank you for considering contributing to this project! This document provides guidelines and instructions for contributing.
+Contributions are welcome. Keep changes focused, testable, and consistent with the analytical definitions documented in `DATA.md`.
 
-## Code of Conduct
+## Development setup
 
-Please be respectful and considerate of others when contributing to this project.
-
-## How to Contribute
-
-1. Fork the repository
-2. Create a new branch for your feature (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests if applicable
-5. Clean the project before committing:
+1. Fork and clone the repository.
+2. Create a feature branch:
+   ```bash
+   git checkout -b feature/short-description
    ```
-   python clean.py --all
+3. Install the development environment:
+   ```bash
+   python -m pip install --upgrade pip
+   pip install -r requirements-dev.txt
    ```
-6. Commit your changes (`git commit -m 'Add some amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
-
-## Development Setup
-
-1. Clone your forked repository
-2. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-3. Run the application:
-   ```
+4. Run the dashboard with the bundled dataset:
+   ```bash
    python main.py
    ```
+   Or use deterministic sample data for a faster smoke test:
+   ```bash
+   python main.py --sample-data
+   ```
 
-## Code Style
+## Before opening a pull request
 
-- Follow PEP 8 style guidelines for Python code
-- Use descriptive variable and function names
-- Include docstrings for all functions, classes, and modules
-- Write clear commit messages
+Run the same checks enforced by GitHub Actions:
 
-## Adding New Features
+```bash
+flake8 . --count --max-complexity=10 --max-line-length=127 --statistics
+pytest -q
+```
 
-If you're adding a new feature:
+The repository maintains a zero-warning Flake8 baseline. New style, undefined-name, or complexity warnings should be fixed before opening a pull request.
 
-1. Ensure it's well-documented
-2. Include appropriate error handling
-3. Add the feature to the README.md if applicable
+For code you change, follow PEP 8, remove unused imports, avoid trailing whitespace, and keep new functions small enough to test independently.
 
-## Reporting Bugs
+## Data and analytical changes
 
-When reporting bugs, please include:
+If a change affects cleaning, derived fields, chart definitions, forecasting, or interpretation:
 
-- Description of the bug
-- Steps to reproduce
-- Expected behavior
-- Screenshots (if applicable)
-- Environment information (OS, browser, etc.)
+- update or add tests for the changed behavior;
+- update `DATA.md` when field definitions, cleaning rules, or limitations change;
+- do not present cumulative lifetime sales as transaction-level monthly or seasonal sales;
+- keep missing values explicit rather than replacing them with invented analytical values.
 
-## Feature Requests
+## Pull request process
 
-Feature requests are welcome! Please provide:
+1. Keep the PR scoped to one coherent change.
+2. Update README or data documentation when user-facing behavior changes.
+3. Confirm the application initializes on a clean install.
+4. Confirm the full Flake8 gate and test suite pass.
+5. Describe any known limitation or follow-up work in the PR body.
 
-- Clear description of the feature
-- Rationale for adding the feature
-- Any relevant examples or mockups
+## Reporting bugs
 
-## Pull Request Process
+Include the behavior observed, expected behavior, reproduction steps, relevant filters or dataset conditions, and environment details. Screenshots are useful for layout or visualization issues.
 
-1. Update the README.md with details of changes if needed
-2. Update documentation as needed
-3. The PR should work properly on a clean installation
-4. Once approved, your PR will be merged
+## Feature requests
 
-Thank you for your contributions! 
+Describe the user problem, expected behavior, and why the proposed feature fits the dashboard's available data.

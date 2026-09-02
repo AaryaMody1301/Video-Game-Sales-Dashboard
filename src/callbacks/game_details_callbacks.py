@@ -17,6 +17,7 @@ def _display_number(value, suffix=""):
 
 def register_game_details_callbacks(app, df):
     """Register callbacks for selecting and displaying one exact game record."""
+
     @app.callback(
         Output("selected-game-data", "data"),
         [
@@ -74,7 +75,11 @@ def register_game_details_callbacks(app, df):
             release_label = str(release_date).split("T")[0].split(" ")[0]
 
         critic_score = game_data.get("critic_score")
-        critic_label = "N/A" if critic_score is None or pd.isna(critic_score) else f"{float(critic_score):.1f}/10"
+        critic_label = (
+            "N/A"
+            if critic_score is None or pd.isna(critic_score)
+            else f"{float(critic_score):.1f}/10"
+        )
         sales_per_point = game_data.get("sales_per_point")
         efficiency_label = (
             "Not available"
@@ -89,11 +94,36 @@ def register_game_details_callbacks(app, df):
                 [
                     dbc.Col(
                         [
-                            html.P([html.Strong("Platform: "), html.Span(game_data.get("console", "N/A"))]),
-                            html.P([html.Strong("Genre: "), html.Span(game_data.get("genre", "N/A"))]),
-                            html.P([html.Strong("Publisher: "), html.Span(game_data.get("publisher", "N/A"))]),
-                            html.P([html.Strong("Developer: "), html.Span(game_data.get("developer", "N/A"))]),
-                            html.P([html.Strong("Release Date: "), html.Span(release_label)]),
+                            html.P(
+                                [
+                                    html.Strong("Platform: "),
+                                    html.Span(game_data.get("console", "N/A")),
+                                ]
+                            ),
+                            html.P(
+                                [
+                                    html.Strong("Genre: "),
+                                    html.Span(game_data.get("genre", "N/A")),
+                                ]
+                            ),
+                            html.P(
+                                [
+                                    html.Strong("Publisher: "),
+                                    html.Span(game_data.get("publisher", "N/A")),
+                                ]
+                            ),
+                            html.P(
+                                [
+                                    html.Strong("Developer: "),
+                                    html.Span(game_data.get("developer", "N/A")),
+                                ]
+                            ),
+                            html.P(
+                                [
+                                    html.Strong("Release Date: "),
+                                    html.Span(release_label),
+                                ]
+                            ),
                         ],
                         width=6,
                     ),
@@ -102,15 +132,65 @@ def register_game_details_callbacks(app, df):
                             html.P(
                                 [
                                     html.Strong("Total Sales: "),
-                                    html.Span(_display_number(game_data.get("total_sales"), " million")),
+                                    html.Span(
+                                        _display_number(
+                                            game_data.get("total_sales"),
+                                            " million",
+                                        )
+                                    ),
                                 ]
                             ),
-                            html.P([html.Strong("Critic Score: "), html.Span(critic_label)]),
+                            html.P(
+                                [
+                                    html.Strong("Critic Score: "),
+                                    html.Span(critic_label),
+                                ]
+                            ),
                             html.H5("Regional Sales Breakdown:", className="mt-3"),
-                            html.P([html.Strong("North America: "), html.Span(_display_number(game_data.get("na_sales"), " million"))]),
-                            html.P([html.Strong("Japan: "), html.Span(_display_number(game_data.get("jp_sales"), " million"))]),
-                            html.P([html.Strong("Europe/Australia: "), html.Span(_display_number(game_data.get("pal_sales"), " million"))]),
-                            html.P([html.Strong("Rest of World: "), html.Span(_display_number(game_data.get("other_sales"), " million"))]),
+                            html.P(
+                                [
+                                    html.Strong("North America: "),
+                                    html.Span(
+                                        _display_number(
+                                            game_data.get("na_sales"),
+                                            " million",
+                                        )
+                                    ),
+                                ]
+                            ),
+                            html.P(
+                                [
+                                    html.Strong("Japan: "),
+                                    html.Span(
+                                        _display_number(
+                                            game_data.get("jp_sales"),
+                                            " million",
+                                        )
+                                    ),
+                                ]
+                            ),
+                            html.P(
+                                [
+                                    html.Strong("Europe/Australia: "),
+                                    html.Span(
+                                        _display_number(
+                                            game_data.get("pal_sales"),
+                                            " million",
+                                        )
+                                    ),
+                                ]
+                            ),
+                            html.P(
+                                [
+                                    html.Strong("Rest of World: "),
+                                    html.Span(
+                                        _display_number(
+                                            game_data.get("other_sales"),
+                                            " million",
+                                        )
+                                    ),
+                                ]
+                            ),
                         ],
                         width=6,
                     ),

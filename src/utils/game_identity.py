@@ -49,9 +49,62 @@ def _numeric_match(series: pd.Series, value) -> pd.Series:
 
     numeric_series = pd.to_numeric(series, errors="coerce")
     return pd.Series(
-        np.isclose(numeric_series.to_numpy(dtype=float), numeric_value, equal_nan=False),
+        np.isclose(
+            numeric_series.to_numpy(dtype=float),
+            numeric_value,
+            equal_nan=False,
+        ),
         index=series.index,
     )
+
+
+def _match_top_games(df: pd.DataFrame, point: dict) -> pd.DataFrame:
+    candidates = df[df["title"] == point.get("y")]
+    if "total_sales" in candidates.columns:
+        candidates = candidates[
+            _numeric_match(candidates["total_sales"], point.get("x"))
+        ]
+    return candidates
+
+
+def _match_critic_scatter(df: pd.DataFrame, point: dict) -> pd.DataFrame:
+    candidates = df[df["title"] == point.get("hovertext")]
+    if "critic_score" in candidates.columns:
+        candidates = candidates[
+            _numeric_match(candidates["critic_score"], point.get("x"))
+        ]
+    if "total_sales" in candidates.columns:
+        candidates = candidates[
+            _numeric_match(candidates["total_sales"], point.get("y"))
+        ]
+    return candidates
+
+
+def _match_efficiency_chart(df: pd.DataFrame, point: dict) -> pd.DataFrame:
+    candidates = df[df["title"] == point.get("x")]
+    if "sales_per_point" in candidates.columns:
+        candidates = candidates[
+            _numeric_match(candidates["sales_per_point"], point.get("y"))
+        ]
+    return candidates
+
+
+def _filter_candidates_by_customdata(
+    candidates: pd.DataFrame,
+    customdata,
+) -> pd.DataFrame:
+    if len(candidates) <= 1 or not customdata or "console" not in candidates.columns:
+        return candidates
+
+    candidate_consoles = set(candidates["console"].astype(str))
+    console_values = {
+        str(value)
+        for value in customdata
+        if str(value) in candidate_consoles
+    }
+    if not console_values:
+        return candidates
+    return candidates[candidates["console"].astype(str).isin(console_values)]
 
 
 def match_game_from_chart_point(
@@ -63,37 +116,23 @@ def match_game_from_chart_point(
     if not point:
         return None
 
-    candidates = df
-
-    if trigger_id == "top-games-bar":
-        title = point.get("y")
-        candidates = candidates[candidates["title"] == title]
-        if "total_sales" in candidates.columns:
-            candidates = candidates[_numeric_match(candidates["total_sales"], point.get("x"))]
-    elif trigger_id == "critic-score-vs-sales":
-        title = point.get("hovertext")
-        candidates = candidates[candidates["title"] == title]
-        if "critic_score" in candidates.columns:
-            candidates = candidates[_numeric_match(candidates["critic_score"], point.get("x"))]
-        if "total_sales" in candidates.columns:
-            candidates = candidates[_numeric_match(candidates["total_sales"], point.get("y"))]
-    elif trigger_id == "sales-to-score-ratio":
-        title = point.get("x")
-        candidates = candidates[candidates["title"] == title]
-        if "sales_per_point" in candidates.columns:
-            candidates = candidates[_numeric_match(candidates["sales_per_point"], point.get("y"))]
-    else:
+    matchers = {
+        "top-games-bar": _match_top_games,
+        "critic-score-vs-sales": _match_critic_scatter,
+        "sales-to-score-ratio": _match_efficiency_chart,
+    }
+    matcher = matchers.get(trigger_id)
+    if matcher is None:
         return None
 
+    candidates = matcher(df, point)
     if candidates.empty:
         return None
 
-    customdata = point.get("customdata") or []
-    if len(candidates) > 1 and customdata:
-        console_values = {str(value) for value in customdata if str(value) in set(candidates["console"].astype(str))}
-        if console_values:
-            candidates = candidates[candidates["console"].astype(str).isin(console_values)]
-
+    candidates = _filter_candidates_by_customdata(
+        candidates,
+        point.get("customdata") or [],
+    )
     if candidates.empty:
         return None
 

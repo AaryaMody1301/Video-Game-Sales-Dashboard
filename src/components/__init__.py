@@ -1,1 +1,1 @@
-"""UI components package for the dashboard""" 
+"""Reusable dashboard UI components."""
