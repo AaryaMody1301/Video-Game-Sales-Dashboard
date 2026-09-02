@@ -3,7 +3,6 @@
 from dash import html
 from dash.dependencies import Input, Output
 import plotly.express as px
-import pandas as pd
 
 from src.data.data_loader import apply_filters
 
