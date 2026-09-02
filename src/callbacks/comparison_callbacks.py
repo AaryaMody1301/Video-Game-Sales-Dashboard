@@ -1,200 +1,201 @@
-"""
-Callbacks for game comparison functionality
-"""
+"""Callbacks for game comparison functionality."""
+
+from dash import dash_table, html
 from dash.dependencies import Input, Output, State
+import numpy as np
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import pandas as pd
-import numpy as np
-from dash import html, dash_table
+
+from src.utils.game_identity import add_game_ids, game_label, select_games_by_id
+
+
+MAX_COMPARISON_GAMES = 5
+
+
+def _empty_comparison(message):
+    figure = px.bar(title=message)
+    return [
+        figure,
+        px.bar(title=message),
+        px.bar(title=message),
+        html.Div(),
+        html.P(message, className="text-danger"),
+    ]
+
 
 def register_comparison_callbacks(app, df, plotly_config=None):
-    """
-    Register callbacks for game comparison functionality
-    
-    Args:
-        app (dash.Dash): The Dash application
-        df (pandas.DataFrame): The complete dataframe
-        plotly_config (dict, optional): Configuration options for Plotly charts
-    """
-    # Default config if none provided
-    if plotly_config is None:
-        plotly_config = {"use_custom_templates": True, "simple_charts": False}
-    
-    @app.callback(
-        Output('game-comparison-dropdown', 'options'),
-        [Input('search-bar', 'value')],
-    )
-    def update_game_dropdown(search_term):
-        """
-        Update the game comparison dropdown options based on search
-        
-        Returns:
-            list: List of dropdown options
-        """
-        if not search_term:
-            # Return top games by sales when no search term
-            top_games = df.nlargest(50, 'total_sales')
-            return [{'label': game, 'value': game} for game in top_games['title']]
-        
-        # Filter games based on search term
-        filtered_games = df[df['title'].str.contains(search_term, case=False, na=False)]
-        filtered_games = filtered_games.nlargest(20, 'total_sales')  # Limit to 20 games
-        
-        return [{'label': game, 'value': game} for game in filtered_games['title']]
+    """Register game comparison callbacks using unique game identities."""
+    games = add_game_ids(df)
 
     @app.callback(
-        [Output('comparison-sales-chart', 'figure'),
-         Output('comparison-regional-chart', 'figure'),
-         Output('comparison-metrics-chart', 'figure'),
-         Output('comparison-table', 'children'),
-         Output('comparison-message', 'children')],
-        [Input('compare-button', 'n_clicks')],
-        [State('game-comparison-dropdown', 'value')],
-        prevent_initial_call=True
+        Output("game-comparison-dropdown", "options"),
+        [Input("search-bar", "value")],
     )
-    def compare_games(n_clicks, selected_games):
-        """
-        Compare selected games across different metrics
-        
-        Returns:
-            tuple: (sales_chart, regional_chart, metrics_chart, comparison_table, message)
-        """
-        if not selected_games or len(selected_games) < 2:
-            return [
-                px.bar(title="Select at least two games to compare"),
-                px.bar(title="Select at least two games to compare"),
-                px.bar(title="Select at least two games to compare"),
-                html.Div(),
-                html.P("Please select at least two games to compare.", className="text-danger")
-            ]
-        
-        # Get data for selected games
-        comparison_df = df[df['title'].isin(selected_games)].copy()
-        
-        if len(comparison_df) < 2:
-            return [
-                px.bar(title="Selected games not found in the dataset"),
-                px.bar(title="Selected games not found in the dataset"),
-                px.bar(title="Selected games not found in the dataset"),
-                html.Div(),
-                html.P("One or more selected games were not found in the dataset.", className="text-danger")
-            ]
-        
-        # Sort by total sales for consistency
-        comparison_df = comparison_df.sort_values('total_sales', ascending=False)
-        
-        # 1. Total sales comparison chart
+    def update_game_dropdown(search_term):
+        candidates = games
+        if search_term and search_term.strip():
+            candidates = candidates[
+                candidates["title"].str.contains(
+                    search_term.strip(),
+                    case=False,
+                    na=False,
+                    regex=False,
+                )
+            ].nlargest(20, "total_sales")
+        else:
+            candidates = candidates.nlargest(50, "total_sales")
+
+        return [
+            {"label": game_label(row), "value": row.game_id}
+            for row in candidates.itertuples(index=False)
+        ]
+
+    @app.callback(
+        [
+            Output("comparison-sales-chart", "figure"),
+            Output("comparison-regional-chart", "figure"),
+            Output("comparison-metrics-chart", "figure"),
+            Output("comparison-table", "children"),
+            Output("comparison-message", "children"),
+        ],
+        [Input("compare-button", "n_clicks")],
+        [State("game-comparison-dropdown", "value")],
+        prevent_initial_call=True,
+    )
+    def compare_games(n_clicks, selected_game_ids):
+        if not selected_game_ids or len(selected_game_ids) < 2:
+            return _empty_comparison("Select at least two games to compare")
+
+        if len(selected_game_ids) > MAX_COMPARISON_GAMES:
+            return _empty_comparison(
+                f"Select no more than {MAX_COMPARISON_GAMES} games for a readable comparison"
+            )
+
+        comparison_df = select_games_by_id(df, selected_game_ids)
+        if len(comparison_df) != len(set(selected_game_ids)):
+            return _empty_comparison("One or more selected games were not found in the dataset")
+
+        comparison_df["display_name"] = [
+            game_label(row) for row in comparison_df.itertuples(index=False)
+        ]
+
         fig_sales = px.bar(
             comparison_df,
-            x='title',
-            y='total_sales',
-            title='Total Sales Comparison',
-            labels={'title': 'Game', 'total_sales': 'Total Sales (millions)'},
-            color='genre',
-            hover_data=['publisher', 'console', 'release_year'],
-            text='total_sales'
+            x="display_name",
+            y="total_sales",
+            title="Total Sales Comparison",
+            labels={"display_name": "Game", "total_sales": "Total Sales (millions)"},
+            color="genre",
+            hover_data=["publisher", "console", "release_year"],
+            text="total_sales",
         )
-        
-        fig_sales.update_traces(texttemplate='%{text:.1f}M', textposition='outside')
-        
-        # 2. Regional sales comparison chart
+        fig_sales.update_traces(texttemplate="%{text:.1f}M", textposition="outside")
+
         regional_data = pd.melt(
             comparison_df,
-            id_vars=['title'],
-            value_vars=['na_sales', 'jp_sales', 'pal_sales', 'other_sales'],
-            var_name='region',
-            value_name='sales'
+            id_vars=["display_name"],
+            value_vars=["na_sales", "jp_sales", "pal_sales", "other_sales"],
+            var_name="region",
+            value_name="sales",
         )
-        
-        region_labels = {
-            'na_sales': 'North America', 
-            'jp_sales': 'Japan', 
-            'pal_sales': 'Europe/Australia', 
-            'other_sales': 'Rest of World'
-        }
-        
-        regional_data['region'] = regional_data['region'].map(region_labels)
-        
+        regional_data["region"] = regional_data["region"].map(
+            {
+                "na_sales": "North America",
+                "jp_sales": "Japan",
+                "pal_sales": "Europe/Australia",
+                "other_sales": "Rest of World",
+            }
+        )
         fig_regional = px.bar(
             regional_data,
-            x='title',
-            y='sales',
-            color='region',
-            title='Regional Sales Breakdown',
-            labels={'title': 'Game', 'sales': 'Sales (millions)', 'region': 'Region'},
-            barmode='group'
+            x="display_name",
+            y="sales",
+            color="region",
+            title="Regional Sales Breakdown",
+            labels={"display_name": "Game", "sales": "Sales (millions)", "region": "Region"},
+            barmode="group",
         )
-        
-        # 3. Metrics comparison chart (spider chart)
-        # Normalize values for radar chart
+
+        max_sales = comparison_df["total_sales"].max()
         metrics = comparison_df.copy()
-        metrics['normalized_sales'] = metrics['total_sales'] / metrics['total_sales'].max() * 100
-        metrics['normalized_critic'] = metrics['critic_score'] / 10 * 100  # Scale from 0-10 to 0-100
-        
-        # Create percentages for regional breakdowns
-        metrics['na_percent'] = metrics['na_sales'] / metrics['total_sales'] * 100
-        metrics['jp_percent'] = metrics['jp_sales'] / metrics['total_sales'] * 100
-        metrics['pal_percent'] = metrics['pal_sales'] / metrics['total_sales'] * 100
-        
-        fig_metrics = go.Figure()
-        
-        for i, game in metrics.iterrows():
-            fig_metrics.add_trace(go.Scatterpolar(
-                r=[
-                    game['normalized_sales'],
-                    game['normalized_critic'],
-                    game['na_percent'],
-                    game['jp_percent'],
-                    game['pal_percent']
-                ],
-                theta=['Total Sales', 'Critic Score', 'NA Market', 'JP Market', 'EU Market'],
-                fill='toself',
-                name=game['title']
-            ))
-        
-        fig_metrics.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 100]
-                )
-            ),
-            title='Game Metrics Comparison'
+        metrics["normalized_sales"] = (
+            metrics["total_sales"] / max_sales * 100 if max_sales > 0 else 0.0
         )
-        
-        # 4. Comparison table with detailed metrics
-        table_df = comparison_df[['title', 'console', 'publisher', 'genre', 'release_year', 
-                                'total_sales', 'critic_score']].copy()
-        
-        # Format table values
-        table_df['total_sales'] = table_df['total_sales'].round(2).astype(str) + ' M'
-        table_df['critic_score'] = table_df['critic_score'].round(1).astype(str) + '/10'
-        
-        # Create the comparison table
+        metrics["normalized_critic"] = metrics["critic_score"] / 10 * 100
+
+        for region in ("na", "jp", "pal"):
+            metrics[f"{region}_percent_display"] = np.where(
+                metrics["total_sales"] > 0,
+                metrics[f"{region}_sales"] / metrics["total_sales"] * 100,
+                0.0,
+            )
+
+        fig_metrics = go.Figure()
+        for row in metrics.itertuples(index=False):
+            critic_value = None if pd.isna(row.normalized_critic) else float(row.normalized_critic)
+            fig_metrics.add_trace(
+                go.Scatterpolar(
+                    r=[
+                        float(row.normalized_sales),
+                        critic_value,
+                        float(row.na_percent_display),
+                        float(row.jp_percent_display),
+                        float(row.pal_percent_display),
+                    ],
+                    theta=["Total Sales", "Critic Score", "NA Market", "JP Market", "EU Market"],
+                    fill="toself",
+                    name=row.display_name,
+                )
+            )
+
+        fig_metrics.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+            title="Game Metrics Comparison",
+        )
+
+        table_df = comparison_df[
+            [
+                "display_name",
+                "publisher",
+                "genre",
+                "release_year",
+                "total_sales",
+                "critic_score",
+            ]
+        ].copy()
+        table_df["total_sales"] = table_df["total_sales"].map(lambda value: f"{value:.2f} M")
+        table_df["critic_score"] = table_df["critic_score"].map(
+            lambda value: "N/A" if pd.isna(value) else f"{value:.1f}/10"
+        )
+
         comparison_table = dash_table.DataTable(
-            id='game-metrics-table',
-            columns=[{"name": col.replace('_', ' ').title(), "id": col} for col in table_df.columns],
-            data=table_df.to_dict('records'),
+            id="game-metrics-table",
+            columns=[
+                {"name": column.replace("_", " ").title(), "id": column}
+                for column in table_df.columns
+            ],
+            data=table_df.to_dict("records"),
             style_cell={
-                'textAlign': 'left',
-                'padding': '5px',
-                'whiteSpace': 'normal',
-                'height': 'auto'
+                "textAlign": "left",
+                "padding": "5px",
+                "whiteSpace": "normal",
+                "height": "auto",
             },
             style_header={
-                'backgroundColor': 'rgb(230, 230, 230)',
-                'fontWeight': 'bold'
+                "backgroundColor": "rgb(230, 230, 230)",
+                "fontWeight": "bold",
             },
             style_data_conditional=[
                 {
-                    'if': {'row_index': 'odd'},
-                    'backgroundColor': 'rgb(248, 248, 248)'
+                    "if": {"row_index": "odd"},
+                    "backgroundColor": "rgb(248, 248, 248)",
                 }
-            ]
+            ],
         )
-        
-        # Success message
-        message = html.P(f"Comparing {len(comparison_df)} games.", className="text-success")
-        
-        return fig_sales, fig_regional, fig_metrics, comparison_table, message 
+
+        message = html.P(
+            f"Comparing {len(selected_game_ids)} games.",
+            className="text-success",
+        )
+        return fig_sales, fig_regional, fig_metrics, comparison_table, message

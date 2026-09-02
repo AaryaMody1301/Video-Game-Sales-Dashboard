@@ -121,7 +121,6 @@ def create_filter_panel(df):
                 options=[
                     {"label": "CSV", "value": "csv"},
                     {"label": "Excel", "value": "excel"},
-                    {"label": "PDF", "value": "pdf"},
                 ],
                 value="csv",
                 clearable=False,
