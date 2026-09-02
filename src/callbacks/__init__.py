@@ -1,1 +1,1 @@
-"""Callbacks package for dashboard interactivity"""
+"""Dash callback registration modules."""
