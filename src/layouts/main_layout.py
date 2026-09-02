@@ -22,7 +22,8 @@ def create_layout(df):
                         [
                             html.H1("Video Game Sales Dashboard", className="mb-2"),
                             html.P(
-                                "Explore reported lifetime game sales across platforms, genres, publishers, and release years.",
+                                "Explore reported lifetime game sales across platforms, "
+                                "genres, publishers, and release years.",
                                 className="text-muted mb-0",
                             ),
                         ],
