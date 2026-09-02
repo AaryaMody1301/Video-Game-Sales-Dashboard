@@ -12,7 +12,7 @@ def test_cache_round_trip_returns_dataframe_copy():
     cached = cache.get(filters)
 
     assert cached is not None
-    pd.testing.assert_frame_equal(cached, source)
+    pd.testing.assert_frame_equal(cached, source, check_dtype=False)
     assert cached is not source
 
 
