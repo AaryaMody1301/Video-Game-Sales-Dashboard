@@ -1,10 +1,10 @@
 # Runtime dependencies
-dash==2.17.1
-dash-bootstrap-components==1.5.0
-pandas==2.2.1
-numpy==1.26.4
-plotly==5.20.0
-scikit-learn==1.4.2
+dash==4.4.1
+dash-bootstrap-components==2.0.4
+pandas==3.0.5
+numpy==2.5.3
+plotly==7.0.0
+scikit-learn==1.9.0
 statsmodels==0.15.0
-xlsxwriter==3.2.0
-numba==0.60.0
+xlsxwriter==3.2.9
+numba==0.67.0
